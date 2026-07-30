@@ -57,24 +57,16 @@ async function ensureLeaderboardChannel(guild) {
     if (existing) return { channel: existing, messageId: meta.messageId };
   }
 
+  // Plain channel, default permissions. An earlier version tried to lock
+  // this read-only via permission overwrites, but a two-step overwrite
+  // (deny @everyone, then allow the bot) is inherently unsafe: if the
+  // second step fails for any reason, the bot locks itself out too, since
+  // bots are members of @everyone like anyone else. Not worth the risk for
+  // cosmetic polish — anyone who wants it read-only can set that manually.
   const channel = await guild.channels.create({
     name: CHANNEL_NAME,
     type: ChannelType.GuildText,
   });
-
-  // Best-effort: lock the channel to bot-only posting. Setting permission
-  // overwrites requires "Manage Roles" in Discord's permission model, which
-  // is separate from (and not guaranteed alongside) "Manage Channels" — so
-  // this is optional polish, not a requirement for the channel to work.
-  // The explicit allow for the bot itself matters: without it, the deny
-  // overwrite on @everyone would silence the bot too, since bots are
-  // members of @everyone like anyone else.
-  await channel.permissionOverwrites
-    .edit(guild.roles.everyone, { SendMessages: false })
-    .catch(() => {});
-  await channel.permissionOverwrites
-    .edit(guild.members.me, { SendMessages: true, ViewChannel: true, EmbedLinks: true })
-    .catch(() => {});
 
   setGuildLeaderboardMeta(guild.id, channel.id, null);
   return { channel, messageId: null };

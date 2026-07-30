@@ -8,7 +8,7 @@ The hosted instance runs 24/7 and its commands are registered globally, so any s
 
 **[Click here to invite the bot](https://discord.com/oauth2/authorize?client_id=1532425088194969701&permissions=18448&scope=bot%20applications.commands)**
 
-It requests `Send Messages`, `Embed Links`, and `Manage Channels` — no privileged intents, no message content access. `Manage Channels` is only used to create and configure its own `#arena-leaderboard` channel (read-only for members).
+It requests `Send Messages`, `Embed Links`, and `Manage Channels` — no privileged intents, no message content access. `Manage Channels` is only used to create its own `#arena-leaderboard` channel.
 
 > If the bot was invited before this permission was added, re-invite it with the link above (Discord merges the new permission in — no need to kick it first), or grant `Manage Channels` to its role manually in Server Settings.
 
@@ -90,7 +90,7 @@ Replies with an embed showing tier, rating, leaderboard rank, win rate, and game
 Supported regions: `OCE, NA, EUW, ME, EUNE, KR, JP, BR, LAS, LAN, RU, TR, SEA, TW, VN`.
 
 **`#arena-leaderboard`**
-Created automatically the first time someone runs `/setign` in a server (read-only for members — the bot is the only one posting). Lists everyone who's registered *in that server*, sorted by rating, with medals for the top 3. It's a single message the bot edits in place — refreshed after every `/setign` and `/rank` in that server, always from already-cached data (see below), never a fresh request of its own. If it's ever deleted, or the channel itself is deleted, the next `/setign` or `/rank` recreates it.
+Created automatically the first time someone runs `/setign` in a server. Lists everyone who's registered *in that server*, sorted by rating, with medals for the top 3. It's a single message the bot edits in place — refreshed after every `/setign` and `/rank` in that server, or on demand via the message's **Update** button, always from already-cached data (see below), never a fresh request of its own. If it's ever deleted, or the channel itself is deleted, the next `/setign`, `/rank`, or button click recreates it. The channel is created with default permissions (not locked to bot-only posting) — deliberately: Discord requires the separate `Manage Roles` permission to edit an *existing* channel's permission overwrites, and a "deny everyone, then allow the bot" two-step is one failed step away from the bot locking itself out of its own channel. If you want it read-only, set that manually in the channel's permissions.
 
 ## Deploying to Railway (24/7 hosting)
 
