@@ -1,6 +1,5 @@
 const {
   EmbedBuilder,
-  PermissionFlagsBits,
   ChannelType,
   ActionRowBuilder,
   ButtonBuilder,
@@ -61,13 +60,21 @@ async function ensureLeaderboardChannel(guild) {
   const channel = await guild.channels.create({
     name: CHANNEL_NAME,
     type: ChannelType.GuildText,
-    permissionOverwrites: [
-      {
-        id: guild.roles.everyone.id,
-        deny: [PermissionFlagsBits.SendMessages],
-      },
-    ],
   });
+
+  // Best-effort: lock the channel to bot-only posting. Setting permission
+  // overwrites requires "Manage Roles" in Discord's permission model, which
+  // is separate from (and not guaranteed alongside) "Manage Channels" — so
+  // this is optional polish, not a requirement for the channel to work.
+  // The explicit allow for the bot itself matters: without it, the deny
+  // overwrite on @everyone would silence the bot too, since bots are
+  // members of @everyone like anyone else.
+  await channel.permissionOverwrites
+    .edit(guild.roles.everyone, { SendMessages: false })
+    .catch(() => {});
+  await channel.permissionOverwrites
+    .edit(guild.members.me, { SendMessages: true, ViewChannel: true, EmbedLinks: true })
+    .catch(() => {});
 
   setGuildLeaderboardMeta(guild.id, channel.id, null);
   return { channel, messageId: null };
