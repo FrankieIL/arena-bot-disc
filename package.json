@@ -1,0 +1,19 @@
+{
+  "name": "arena-sweats-bot",
+  "version": "1.0.0",
+  "description": "Discord bot for registering Riot IDs and looking up League of Legends Arena mode rank from arenasweats.lol",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "deploy-commands": "node src/deploy-commands.js"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.5"
+  },
+  "license": "MIT"
+}
