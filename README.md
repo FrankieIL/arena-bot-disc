@@ -6,11 +6,11 @@ A Discord bot for League of Legends players. Register your Riot ID and region on
 
 The hosted instance runs 24/7 and its commands are registered globally, so any server owner can add it — no self-hosting required:
 
-**[Click here to invite the bot](https://discord.com/oauth2/authorize?client_id=1532425088194969701&permissions=18448&scope=bot%20applications.commands)**
+**[Click here to invite the bot](https://discord.com/oauth2/authorize?client_id=1532425088194969701&permissions=26640&scope=bot%20applications.commands)**
 
-It requests `Send Messages`, `Embed Links`, and `Manage Channels` — no privileged intents, no message content access. `Manage Channels` is only used to create its own `#arena-leaderboard` channel.
+It requests `Send Messages`, `Embed Links`, `Manage Channels`, and `Manage Messages` — no privileged intents, no message content access. `Manage Channels` creates its own `#arena-leaderboard` channel; `Manage Messages` lets it delete anything anyone else posts there, keeping it a clean, bot-only display.
 
-> If the bot was invited before this permission was added, re-invite it with the link above (Discord merges the new permission in — no need to kick it first), or grant `Manage Channels` to its role manually in Server Settings.
+> If the bot was invited before these permissions were added, re-invite it with the link above (Discord merges new permissions in — no need to kick it first), or grant `Manage Channels` + `Manage Messages` to its role manually in Server Settings.
 
 ## How it works
 
@@ -39,7 +39,7 @@ Because this is someone's solo-run project, the bot is deliberately a polite cli
    - No privileged intents are required — this bot only uses slash commands.
 
 2. **Invite the bot to your server**
-   - Under **OAuth2 → URL Generator**, select scopes `bot` and `applications.commands`, and permissions `Send Messages` + `Embed Links` + `Manage Channels` (the last one lets it create/manage its own `#arena-leaderboard` channel).
+   - Under **OAuth2 → URL Generator**, select scopes `bot` and `applications.commands`, and permissions `Send Messages` + `Embed Links` + `Manage Channels` + `Manage Messages` (for creating and keeping its own `#arena-leaderboard` channel clean).
    - Open the generated URL and add the bot to your server.
 
 3. **Install dependencies**
@@ -90,7 +90,9 @@ Replies with an embed showing tier, rating, leaderboard rank, win rate, and game
 Supported regions: `OCE, NA, EUW, ME, EUNE, KR, JP, BR, LAS, LAN, RU, TR, SEA, TW, VN`.
 
 **`#arena-leaderboard`**
-Created automatically the first time someone runs `/setign` in a server. Lists everyone who's registered *in that server*, sorted by rating, with medals for the top 3. It's a single message the bot edits in place — refreshed after every `/setign` and `/rank` in that server, or on demand via the message's **Update** button, always from already-cached data (see below), never a fresh request of its own. If it's ever deleted, or the channel itself is deleted, the next `/setign`, `/rank`, or button click recreates it. The channel is created with default permissions (not locked to bot-only posting) — deliberately: Discord requires the separate `Manage Roles` permission to edit an *existing* channel's permission overwrites, and a "deny everyone, then allow the bot" two-step is one failed step away from the bot locking itself out of its own channel. If you want it read-only, set that manually in the channel's permissions.
+Created automatically the first time someone runs `/setign` in a server. Lists everyone who's registered *in that server*, sorted by rating, with medals for the top 3. It's a single message the bot edits in place — refreshed after every `/setign` and `/rank` in that server, or on demand via the message's **Update** button, always from already-cached data (see below), never a fresh request of its own. If it's ever deleted, or the channel itself is deleted, the next `/setign`, `/rank`, or button click recreates it.
+
+The channel is created with default (not locked-down) permissions — anyone can technically post there — but the bot actively deletes any message in that channel that isn't its own leaderboard message, keeping it clean without relying on permission overwrites. (An earlier version tried a permission-overwrite lockdown instead; it's more fragile than it looks — see the commit history if curious — so this replaces it.)
 
 ## Deploying to Railway (24/7 hosting)
 

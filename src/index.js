@@ -1,10 +1,11 @@
 const { Client, GatewayIntentBits, Collection, MessageFlags } = require('discord.js');
 const { DISCORD_TOKEN } = require('./config');
+const { getGuildLeaderboardMeta } = require('./db');
 const setign = require('./commands/setign');
 const rank = require('./commands/rank');
 const { refreshGuildLeaderboard, REFRESH_BUTTON_ID } = require('./leaderboard');
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
 
 client.commands = new Collection();
 client.commands.set(setign.data.name, setign);
@@ -44,6 +45,15 @@ client.on('interactionCreate', async (interaction) => {
       console.error('Error handling leaderboard refresh button:', err);
     }
   }
+});
+
+client.on('messageCreate', async (message) => {
+  if (!message.guild || message.author.id === client.user.id) return;
+
+  const meta = getGuildLeaderboardMeta(message.guild.id);
+  if (!meta || message.channel.id !== meta.channelId) return;
+
+  await message.delete().catch(() => {});
 });
 
 client.login(DISCORD_TOKEN);
