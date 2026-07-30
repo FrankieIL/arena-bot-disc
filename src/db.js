@@ -21,6 +21,20 @@ db.exec(`
     fetched_at TEXT NOT NULL,
     PRIMARY KEY (riot_name, riot_tag, region)
   );
+
+  CREATE TABLE IF NOT EXISTS guild_leaderboard_members (
+    guild_id   TEXT NOT NULL,
+    discord_id TEXT NOT NULL,
+    added_at   TEXT NOT NULL,
+    PRIMARY KEY (guild_id, discord_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS guild_leaderboards (
+    guild_id   TEXT PRIMARY KEY,
+    channel_id TEXT NOT NULL,
+    message_id TEXT,
+    updated_at TEXT NOT NULL
+  );
 `);
 
 const upsertPlayerStmt = db.prepare(`
@@ -49,6 +63,36 @@ const upsertCacheStmt = db.prepare(`
   ON CONFLICT(riot_name, riot_tag, region) DO UPDATE SET
     payload = excluded.payload,
     fetched_at = excluded.fetched_at
+`);
+
+const addGuildLeaderboardMemberStmt = db.prepare(`
+  INSERT INTO guild_leaderboard_members (guild_id, discord_id, added_at)
+  VALUES (@guild_id, @discord_id, @added_at)
+  ON CONFLICT(guild_id, discord_id) DO NOTHING
+`);
+
+const getGuildLeaderboardRowsStmt = db.prepare(`
+  SELECT glm.discord_id, p.riot_name, p.riot_tag, p.region, rc.payload
+  FROM guild_leaderboard_members glm
+  JOIN players p ON p.discord_id = glm.discord_id
+  LEFT JOIN rank_cache rc
+    ON rc.riot_name = LOWER(p.riot_name)
+    AND rc.riot_tag = LOWER(p.riot_tag)
+    AND rc.region = LOWER(p.region)
+  WHERE glm.guild_id = ?
+`);
+
+const getGuildLeaderboardMetaStmt = db.prepare(`
+  SELECT channel_id, message_id FROM guild_leaderboards WHERE guild_id = ?
+`);
+
+const upsertGuildLeaderboardMetaStmt = db.prepare(`
+  INSERT INTO guild_leaderboards (guild_id, channel_id, message_id, updated_at)
+  VALUES (@guild_id, @channel_id, @message_id, @updated_at)
+  ON CONFLICT(guild_id) DO UPDATE SET
+    channel_id = excluded.channel_id,
+    message_id = excluded.message_id,
+    updated_at = excluded.updated_at
 `);
 
 function upsertPlayer({ discordId, riotName, riotTag, region }) {
@@ -89,9 +133,46 @@ function setCachedRank(riotName, riotTag, region, payload) {
   });
 }
 
+function addGuildLeaderboardMember(guildId, discordId) {
+  addGuildLeaderboardMemberStmt.run({
+    guild_id: guildId,
+    discord_id: discordId,
+    added_at: new Date().toISOString(),
+  });
+}
+
+function getGuildLeaderboardRows(guildId) {
+  return getGuildLeaderboardRowsStmt.all(guildId).map((row) => ({
+    discordId: row.discord_id,
+    riotName: row.riot_name,
+    riotTag: row.riot_tag,
+    region: row.region,
+    payload: row.payload ? JSON.parse(row.payload) : null,
+  }));
+}
+
+function getGuildLeaderboardMeta(guildId) {
+  const row = getGuildLeaderboardMetaStmt.get(guildId);
+  if (!row) return null;
+  return { channelId: row.channel_id, messageId: row.message_id };
+}
+
+function setGuildLeaderboardMeta(guildId, channelId, messageId) {
+  upsertGuildLeaderboardMetaStmt.run({
+    guild_id: guildId,
+    channel_id: channelId,
+    message_id: messageId,
+    updated_at: new Date().toISOString(),
+  });
+}
+
 module.exports = {
   upsertPlayer,
   getPlayer,
   getCachedRank,
   setCachedRank,
+  addGuildLeaderboardMember,
+  getGuildLeaderboardRows,
+  getGuildLeaderboardMeta,
+  setGuildLeaderboardMeta,
 };

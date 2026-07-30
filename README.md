@@ -1,14 +1,16 @@
 # Arena Sweats Discord Bot
 
-A Discord bot for League of Legends players. Register your Riot ID and region once with `/setign`, then look up your (or a teammate's) current [Arena mode](https://www.leagueoflegends.com/en-us/news/game-updates/arena-2-0/) rank from [arenasweats.lol](https://arenasweats.lol) on demand with `/rank`.
+A Discord bot for League of Legends players. Register your Riot ID and region once with `/setign`, then look up your (or a teammate's) current [Arena mode](https://www.leagueoflegends.com/en-us/news/game-updates/arena-2-0/) rank from [arenasweats.lol](https://arenasweats.lol) on demand with `/rank`. Every server it's in automatically gets a self-updating `#arena-leaderboard` channel listing everyone who's registered there.
 
 ## Add this bot to your server
 
 The hosted instance runs 24/7 and its commands are registered globally, so any server owner can add it — no self-hosting required:
 
-**[Click here to invite the bot](https://discord.com/oauth2/authorize?client_id=1532425088194969701&permissions=18432&scope=bot%20applications.commands)**
+**[Click here to invite the bot](https://discord.com/oauth2/authorize?client_id=1532425088194969701&permissions=18448&scope=bot%20applications.commands)**
 
-It requests only `Send Messages` and `Embed Links` — no privileged intents, no message content access.
+It requests `Send Messages`, `Embed Links`, and `Manage Channels` — no privileged intents, no message content access. `Manage Channels` is only used to create and configure its own `#arena-leaderboard` channel (read-only for members).
+
+> If the bot was invited before this permission was added, re-invite it with the link above (Discord merges the new permission in — no need to kick it first), or grant `Manage Channels` to its role manually in Server Settings.
 
 ## How it works
 
@@ -37,7 +39,7 @@ Because this is someone's solo-run project, the bot is deliberately a polite cli
    - No privileged intents are required — this bot only uses slash commands.
 
 2. **Invite the bot to your server**
-   - Under **OAuth2 → URL Generator**, select scopes `bot` and `applications.commands`, and permissions `Send Messages` + `Embed Links`.
+   - Under **OAuth2 → URL Generator**, select scopes `bot` and `applications.commands`, and permissions `Send Messages` + `Embed Links` + `Manage Channels` (the last one lets it create/manage its own `#arena-leaderboard` channel).
    - Open the generated URL and add the bot to your server.
 
 3. **Install dependencies**
@@ -87,6 +89,9 @@ Replies with an embed showing tier, rating, leaderboard rank, win rate, and game
 
 Supported regions: `OCE, NA, EUW, ME, EUNE, KR, JP, BR, LAS, LAN, RU, TR, SEA, TW, VN`.
 
+**`#arena-leaderboard`**
+Created automatically the first time someone runs `/setign` in a server (read-only for members — the bot is the only one posting). Lists everyone who's registered *in that server*, sorted by rating, with medals for the top 3. It's a single message the bot edits in place — refreshed after every `/setign` and `/rank` in that server, always from already-cached data (see below), never a fresh request of its own. If it's ever deleted, or the channel itself is deleted, the next `/setign` or `/rank` recreates it.
+
 ## Deploying to Railway (24/7 hosting)
 
 The bot is a stateful, always-on process (it holds a persistent Discord gateway connection and reads/writes a local SQLite file), so it needs a platform that keeps a container running continuously and gives it durable disk — a serverless/on-demand platform won't work.
@@ -113,6 +118,7 @@ src/
 ├── config.js              # env loading and constants
 ├── db.js                  # SQLite schema + queries (node:sqlite)
 ├── arenaSweats.js         # arenasweats.lol API client, caching, request queue
+├── leaderboard.js         # per-guild #arena-leaderboard channel management
 └── commands/
     ├── setign.js
     └── rank.js

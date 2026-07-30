@@ -1,6 +1,8 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { REGIONS } = require('../config');
-const { upsertPlayer } = require('../db');
+const { upsertPlayer, addGuildLeaderboardMember } = require('../db');
+const { getPlayerRank } = require('../arenaSweats');
+const { refreshGuildLeaderboard } = require('../leaderboard');
 
 const data = new SlashCommandBuilder()
   .setName('setign')
@@ -38,6 +40,8 @@ async function execute(interaction) {
   const riotName = riotId.slice(0, separatorIndex).trim();
   const riotTag = riotId.slice(separatorIndex + 1).trim();
 
+  await interaction.deferReply({ ephemeral: true });
+
   upsertPlayer({
     discordId: interaction.user.id,
     riotName,
@@ -51,7 +55,18 @@ async function execute(interaction) {
     .setDescription(`\`${riotName}#${riotTag}\` (${region}) is now linked to your Discord account.`)
     .setFooter({ text: 'Use /rank anytime to look up your current Arena rating.' });
 
-  await interaction.reply({ embeds: [embed], ephemeral: true });
+  if (interaction.guild) {
+    // Best-effort: seed the cache so the leaderboard doesn't show this entry as pending.
+    await getPlayerRank(riotName, riotTag, region).catch(() => {});
+
+    addGuildLeaderboardMember(interaction.guildId, interaction.user.id);
+    const warning = await refreshGuildLeaderboard(interaction.guild);
+    if (warning) {
+      embed.addFields({ name: 'Leaderboard', value: warning });
+    }
+  }
+
+  await interaction.editReply({ embeds: [embed] });
 }
 
 module.exports = { data, execute };

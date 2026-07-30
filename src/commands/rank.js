@@ -1,6 +1,7 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { getPlayer } = require('../db');
 const { getPlayerRank, PlayerNotFoundError, ArenaSweatsUnavailableError } = require('../arenaSweats');
+const { refreshGuildLeaderboard } = require('../leaderboard');
 
 const data = new SlashCommandBuilder()
   .setName('rank')
@@ -68,6 +69,10 @@ async function execute(interaction) {
     const rankData = await getPlayerRank(player.riotName, player.riotTag, player.region);
     const embed = buildRankEmbed(player.riotName, player.riotTag, player.region, rankData);
     await interaction.editReply({ embeds: [embed] });
+
+    if (interaction.guild) {
+      await refreshGuildLeaderboard(interaction.guild);
+    }
   } catch (err) {
     if (err instanceof PlayerNotFoundError) {
       await interaction.editReply({
