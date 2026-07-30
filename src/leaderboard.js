@@ -1,8 +1,24 @@
-const { EmbedBuilder, PermissionFlagsBits, ChannelType } = require('discord.js');
+const {
+  EmbedBuilder,
+  PermissionFlagsBits,
+  ChannelType,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+} = require('discord.js');
 const { getGuildLeaderboardRows, getGuildLeaderboardMeta, setGuildLeaderboardMeta } = require('./db');
 
 const CHANNEL_NAME = 'arena-leaderboard';
 const MEDALS = ['🥇', '🥈', '🥉'];
+const REFRESH_BUTTON_ID = 'leaderboard_refresh';
+
+const refreshRow = new ActionRowBuilder().addComponents(
+  new ButtonBuilder()
+    .setCustomId(REFRESH_BUTTON_ID)
+    .setLabel('Update')
+    .setEmoji('🔄')
+    .setStyle(ButtonStyle.Secondary),
+);
 
 function buildLeaderboardEmbed(rows) {
   const ranked = rows
@@ -74,9 +90,9 @@ async function refreshGuildLeaderboard(guild) {
       : null;
 
     if (message) {
-      await message.edit({ embeds: [embed] });
+      await message.edit({ embeds: [embed], components: [refreshRow] });
     } else {
-      message = await channel.send({ embeds: [embed] });
+      message = await channel.send({ embeds: [embed], components: [refreshRow] });
       setGuildLeaderboardMeta(guild.id, channel.id, message.id);
     }
 
@@ -86,4 +102,4 @@ async function refreshGuildLeaderboard(guild) {
   }
 }
 
-module.exports = { refreshGuildLeaderboard };
+module.exports = { refreshGuildLeaderboard, REFRESH_BUTTON_ID };
