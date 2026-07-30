@@ -2,6 +2,14 @@
 
 A Discord bot for League of Legends players. Register your Riot ID and region once with `/setign`, then look up your (or a teammate's) current [Arena mode](https://www.leagueoflegends.com/en-us/news/game-updates/arena-2-0/) rank from [arenasweats.lol](https://arenasweats.lol) on demand with `/rank`.
 
+## Add this bot to your server
+
+The hosted instance runs 24/7 and its commands are registered globally, so any server owner can add it — no self-hosting required:
+
+**[Click here to invite the bot](https://discord.com/oauth2/authorize?client_id=1532425088194969701&permissions=18432&scope=bot%20applications.commands)**
+
+It requests only `Send Messages` and `Embed Links` — no privileged intents, no message content access.
+
 ## How it works
 
 arenasweats.lol doesn't publish a documented public API, so this bot talks to the same internal JSON endpoints the site's own search bar uses (found by inspecting its network requests):
@@ -45,7 +53,7 @@ Because this is someone's solo-run project, the bot is deliberately a polite cli
    Fill in:
    - `DISCORD_TOKEN` — your bot token
    - `CLIENT_ID` — your application's client ID
-   - `GUILD_ID` — (recommended for development) the ID of a test server, so slash commands register instantly. Leave blank to register commands globally (can take up to an hour to appear).
+   - `GUILD_ID` — local development convenience only: set it to a test server's ID so slash commands you're actively changing register there instantly. Leave it blank (the production/shared default) to register commands globally, so anyone can invite the bot and use them — allow up to an hour for global registration to propagate. Don't leave stale guild-scoped commands registered alongside global ones, or they'll show up as duplicates in that one server (see `deploy-commands.js` — re-running with `GUILD_ID` blank does not remove a previous guild-scoped registration; that needs an explicit empty `PUT` to the guild commands route).
    - `CACHE_TTL_MINUTES` / `REQUEST_DELAY_MS` — tune caching/rate-limiting behavior if needed; the defaults are sensible.
 
 5. **Register slash commands**
@@ -91,7 +99,7 @@ The bot is a stateful, always-on process (it holds a persistent Discord gateway 
    - `CACHE_TTL_MINUTES`, `REQUEST_DELAY_MS` — same as local
    - `DB_PATH=/data/bot.sqlite3` — points the app at the mounted Volume instead of the local dev path
 4. **Deploy**, then check the logs for `Logged in as <botname>` to confirm it connected.
-5. **Register slash commands from the cloud instance**: run `node src/deploy-commands.js` once via Railway's one-off command runner (the service's Shell tab, or `railway run node src/deploy-commands.js` with the CLI). Re-run it any time the command definitions change.
+5. **Register slash commands**: this only needs to be re-run when the command *definitions* change (not on every deploy). Do it from any machine with the bot's `DISCORD_TOKEN`/`CLIENT_ID` — Railway's one-off command runner (Shell tab, or `railway run node src/deploy-commands.js`) or locally both work identically, since registration talks to Discord's API directly and doesn't depend on where the bot process itself is running. Leave `GUILD_ID` blank wherever you run it from, so commands stay global.
 
 Only run one instance of the bot at a time — a local `npm start` and the Railway deployment sharing the same `DISCORD_TOKEN` simultaneously can cause duplicate or conflicting interaction handling.
 
