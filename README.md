@@ -1,6 +1,6 @@
 # Arena Sweats Discord Bot
 
-A Discord bot for League of Legends players. Register your Riot ID and region once with `/setign`, then look up your (or a teammate's) current [Arena mode](https://www.leagueoflegends.com/en-us/news/game-updates/arena-2-0/) rank from [arenasweats.lol](https://arenasweats.lol) on demand with `/rank`. Every server it's in automatically gets a self-updating `#arena-leaderboard` channel listing everyone who's registered there.
+A Discord bot for League of Legends players. Register your Riot ID and region once with `/setign`, and every server it's in automatically gets a self-updating `#arena-leaderboard` channel listing everyone who's registered there with their current [Arena mode](https://www.leagueoflegends.com/en-us/news/game-updates/arena-2-0/) rank from [arenasweats.lol](https://arenasweats.lol) — click **Update** on the leaderboard any time to refresh everyone live.
 
 ## Add this bot to your server
 
@@ -21,7 +21,7 @@ arenasweats.lol doesn't publish a documented public API, so this bot talks to th
 
 Because this is someone's solo-run project, the bot is deliberately a polite client:
 
-- **Always live, cache as a fallback only** — `/setign`, `/rank`, and the leaderboard's Update button all fetch live from arenasweats.lol every time. SQLite only holds a copy of each player's *most recent successful* fetch, used purely as a fallback if the site is unreachable — never as a way to skip a request.
+- **Always live, cache as a fallback only** — `/setign` and the leaderboard's Update button both fetch live from arenasweats.lol every time. SQLite only holds a copy of each player's *most recent successful* fetch, used purely as a fallback if the site is unreachable — never as a way to skip a request.
 - **No concurrency** — all outbound requests are funneled through a single serialized queue with a small fixed delay between them, so the bot never fires concurrent requests at the site, no matter how many Discord users query at once.
 - **A "not found" is never cached or masked** — a mistyped Riot ID always surfaces as a real error (not stale data), so fixing a typo with `/setign` and immediately retrying works right away. Only genuine site-unavailability falls back to the last known-good data.
 
@@ -79,24 +79,16 @@ Registers your Riot ID for future lookups.
 /setign riot_id:PlayerOne#EUW1 region:EUW
 ```
 
-**`/rank [user]`**
-Looks up your own rank, or another server member's if they've registered.
-```
-/rank
-/rank user:@someone
-```
-Replies with an embed showing tier, rating, leaderboard rank, win rate, and games played. Always fetches live; the footer only mentions cache if arenasweats.lol was unreachable and it had to fall back to the last known data for that player.
-
 Supported regions: `OCE, NA, EUW, ME, EUNE, KR, JP, BR, LAS, LAN, RU, TR, SEA, TW, VN`.
 
 **`#arena-leaderboard`**
 Created automatically the first time someone runs `/setign` in a server, with three bot-managed messages:
 
-1. **An info message** — pinned to the top of the channel (it's the first thing sent into a freshly created channel). Static: credits Arena Sweats as the data source with a link, and gives a one-line reminder of the `/setign`/`/rank` commands and the Update button.
-2. **The leaderboard itself** — lists everyone who's registered *in that server*, sorted by rating, with medals for the top 3. Edited in place — redrawn (from cache, no new requests) after every `/setign` and `/rank` in that server, or fully live-refreshed for every player on the board via its **Update** button. Update is rate-limited to once every 5 minutes per server — click it again sooner and the bot just tells you to wait, rather than re-hitting arenasweats.lol.
+1. **An info message** — pinned to the top of the channel (it's the first thing sent into a freshly created channel). Static: credits Arena Sweats as the data source with a link, and gives a one-line reminder of the `/setign` command and the Update button.
+2. **The leaderboard itself** — lists everyone who's registered *in that server*, sorted by rating, with medals for the top 3. Edited in place — redrawn (from cache, no new requests) after every `/setign` in that server, or fully live-refreshed for every player on the board via its **Update** button. Update is rate-limited to once every 5 minutes per server — click it again sooner and the bot just tells you to wait, rather than re-hitting arenasweats.lol.
 3. **An update-progress message** — created the first time Update is clicked, then edited in place on every click after. Shows per-player progress: ⏳ while a player's fetch is in flight, then ✅ or ❌ once it resolves, so it's obvious if one player's update failed without affecting anyone else's. Once the run finishes, it shows "Updated ..." with a relative timestamp, plus a warning if *every* fetch in that run failed (a strong signal arenasweats.lol itself is down, not just one bad lookup).
 
-Each message is self-healing independently — if any of them (or the whole channel) is deleted, the next `/setign`, `/rank`, or Update click recreates whatever's missing. The one exception is ordering: the info message is only guaranteed to be *first* when the channel itself is freshly created — if it's individually deleted and recreated later, Discord has no way to move it back above messages that already exist.
+Each message is self-healing independently — if any of them (or the whole channel) is deleted, the next `/setign` or Update click recreates whatever's missing. The one exception is ordering: the info message is only guaranteed to be *first* when the channel itself is freshly created — if it's individually deleted and recreated later, Discord has no way to move it back above messages that already exist.
 
 The channel is created with default (not locked-down) permissions — anyone can technically post there — but the bot actively deletes any message in that channel that isn't its own, keeping it clean without relying on permission overwrites. (An earlier version tried a permission-overwrite lockdown instead; it's more fragile than it looks — see the commit history if curious — so this replaces it.)
 
@@ -128,6 +120,5 @@ src/
 ├── arenaSweats.js         # arenasweats.lol API client, caching, request queue
 ├── leaderboard.js         # per-guild #arena-leaderboard channel management
 └── commands/
-    ├── setign.js
-    └── rank.js
+    └── setign.js
 ```

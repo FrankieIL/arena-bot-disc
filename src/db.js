@@ -58,11 +58,6 @@ const upsertPlayerStmt = db.prepare(`
     updated_at = excluded.updated_at
 `);
 
-const getPlayerStmt = db.prepare(`
-  SELECT discord_id, riot_name, riot_tag, region, updated_at
-  FROM players WHERE discord_id = ?
-`);
-
 const getCacheStmt = db.prepare(`
   SELECT payload, fetched_at FROM rank_cache
   WHERE riot_name = ? AND riot_tag = ? AND region = ?
@@ -122,18 +117,6 @@ function upsertPlayer({ discordId, riotName, riotTag, region }) {
     region,
     updated_at: new Date().toISOString(),
   });
-}
-
-function getPlayer(discordId) {
-  const row = getPlayerStmt.get(discordId);
-  if (!row) return null;
-  return {
-    discordId: row.discord_id,
-    riotName: row.riot_name,
-    riotTag: row.riot_tag,
-    region: row.region,
-    updatedAt: row.updated_at,
-  };
 }
 
 function getCachedRank(riotName, riotTag, region) {
@@ -200,7 +183,6 @@ function setGuildInfoMessage(guildId, messageId) {
 
 module.exports = {
   upsertPlayer,
-  getPlayer,
   getCachedRank,
   setCachedRank,
   addGuildLeaderboardMember,

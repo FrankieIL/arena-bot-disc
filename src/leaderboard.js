@@ -111,7 +111,6 @@ function buildInfoEmbed() {
         'Data is sourced from Arena Sweats: https://arenasweats.lol',
         '',
         '**`/setign`** `riot_id` `region` — register your Riot ID (e.g. `PlayerOne#EUW1`) so you show up below.',
-        '**`/rank`** `[user]` — look up your (or someone else\'s) current Arena rank.',
         'Click **Update** on the leaderboard message below to refresh everyone\'s data live.',
       ].join('\n'),
     );

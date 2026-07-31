@@ -1,9 +1,8 @@
 const { REST, Routes } = require('discord.js');
 const { DISCORD_TOKEN, CLIENT_ID, GUILD_ID } = require('./config');
 const setign = require('./commands/setign');
-const rank = require('./commands/rank');
 
-const commands = [setign.data.toJSON(), rank.data.toJSON()];
+const commands = [setign.data.toJSON()];
 const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
 
 (async () => {

@@ -2,7 +2,6 @@ const { Client, GatewayIntentBits, Collection, MessageFlags } = require('discord
 const { DISCORD_TOKEN } = require('./config');
 const { getGuildLeaderboardMeta } = require('./db');
 const setign = require('./commands/setign');
-const rank = require('./commands/rank');
 const {
   refreshGuildLeaderboardLive,
   getLiveRefreshCooldownRemainingMs,
@@ -13,7 +12,6 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBit
 
 client.commands = new Collection();
 client.commands.set(setign.data.name, setign);
-client.commands.set(rank.data.name, rank);
 
 client.once('clientReady', () => {
   console.log(`Logged in as ${client.user.tag}`);
