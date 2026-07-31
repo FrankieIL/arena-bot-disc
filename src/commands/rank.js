@@ -71,7 +71,7 @@ async function execute(interaction) {
     await interaction.editReply({ embeds: [embed] });
 
     if (interaction.guild) {
-      await refreshGuildLeaderboard(interaction.guild, rankData._live ? 'success' : 'failure');
+      await refreshGuildLeaderboard(interaction.guild);
     }
   } catch (err) {
     if (err instanceof PlayerNotFoundError) {
@@ -85,9 +85,6 @@ async function execute(interaction) {
       await interaction.editReply({
         content: 'arenasweats.lol is unreachable right now, and there\'s no previous data on file for this player yet. Please try again in a few minutes.',
       });
-      if (interaction.guild) {
-        await refreshGuildLeaderboard(interaction.guild, 'failure');
-      }
       return;
     }
     throw err;

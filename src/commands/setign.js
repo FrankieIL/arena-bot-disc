@@ -1,7 +1,7 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { REGIONS } = require('../config');
 const { upsertPlayer, addGuildLeaderboardMember } = require('../db');
-const { getPlayerRank, ArenaSweatsUnavailableError } = require('../arenaSweats');
+const { getPlayerRank } = require('../arenaSweats');
 const { refreshGuildLeaderboard } = require('../leaderboard');
 
 const data = new SlashCommandBuilder()
@@ -56,20 +56,11 @@ async function execute(interaction) {
     .setFooter({ text: 'Use /rank anytime to look up your current Arena rating.' });
 
   if (interaction.guild) {
-    // Best-effort: seed the cache so the leaderboard doesn't show this entry
-    // as pending. A bad/mistyped IGN (PlayerNotFoundError) isn't a site-
-    // availability signal, so it's swallowed without affecting the
-    // leaderboard's "last updated"/"update failed" status.
-    let outcome;
-    try {
-      const result = await getPlayerRank(riotName, riotTag, region);
-      outcome = result._live ? 'success' : 'failure';
-    } catch (err) {
-      outcome = err instanceof ArenaSweatsUnavailableError ? 'failure' : undefined;
-    }
+    // Best-effort: seed the cache so the leaderboard doesn't show this entry as pending.
+    await getPlayerRank(riotName, riotTag, region).catch(() => {});
 
     addGuildLeaderboardMember(interaction.guildId, interaction.user.id);
-    const warning = await refreshGuildLeaderboard(interaction.guild, outcome);
+    const warning = await refreshGuildLeaderboard(interaction.guild);
     if (warning) {
       embed.addFields({ name: 'Leaderboard', value: warning });
     }

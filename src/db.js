@@ -45,8 +45,7 @@ function ensureColumn(table, column, type) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
   }
 }
-ensureColumn('guild_leaderboards', 'last_success_at', 'TEXT');
-ensureColumn('guild_leaderboards', 'last_failure_at', 'TEXT');
+ensureColumn('guild_leaderboards', 'update_log_message_id', 'TEXT');
 
 const upsertPlayerStmt = db.prepare(`
   INSERT INTO players (discord_id, riot_name, riot_tag, region, updated_at)
@@ -94,7 +93,7 @@ const getGuildLeaderboardRowsStmt = db.prepare(`
 `);
 
 const getGuildLeaderboardMetaStmt = db.prepare(`
-  SELECT channel_id, message_id, last_success_at, last_failure_at FROM guild_leaderboards WHERE guild_id = ?
+  SELECT channel_id, message_id, update_log_message_id FROM guild_leaderboards WHERE guild_id = ?
 `);
 
 const upsertGuildLeaderboardMetaStmt = db.prepare(`
@@ -106,12 +105,8 @@ const upsertGuildLeaderboardMetaStmt = db.prepare(`
     updated_at = excluded.updated_at
 `);
 
-const markGuildLeaderboardSuccessStmt = db.prepare(`
-  UPDATE guild_leaderboards SET last_success_at = @at WHERE guild_id = @guild_id
-`);
-
-const markGuildLeaderboardFailureStmt = db.prepare(`
-  UPDATE guild_leaderboards SET last_failure_at = @at WHERE guild_id = @guild_id
+const setUpdateLogMessageStmt = db.prepare(`
+  UPDATE guild_leaderboards SET update_log_message_id = @message_id WHERE guild_id = @guild_id
 `);
 
 function upsertPlayer({ discordId, riotName, riotTag, region }) {
@@ -176,8 +171,7 @@ function getGuildLeaderboardMeta(guildId) {
   return {
     channelId: row.channel_id,
     messageId: row.message_id,
-    lastSuccessAt: row.last_success_at,
-    lastFailureAt: row.last_failure_at,
+    updateLogMessageId: row.update_log_message_id,
   };
 }
 
@@ -190,12 +184,8 @@ function setGuildLeaderboardMeta(guildId, channelId, messageId) {
   });
 }
 
-function markGuildLeaderboardSuccess(guildId) {
-  markGuildLeaderboardSuccessStmt.run({ guild_id: guildId, at: new Date().toISOString() });
-}
-
-function markGuildLeaderboardFailure(guildId) {
-  markGuildLeaderboardFailureStmt.run({ guild_id: guildId, at: new Date().toISOString() });
+function setGuildUpdateLogMessage(guildId, messageId) {
+  setUpdateLogMessageStmt.run({ guild_id: guildId, message_id: messageId });
 }
 
 module.exports = {
@@ -207,6 +197,5 @@ module.exports = {
   getGuildLeaderboardRows,
   getGuildLeaderboardMeta,
   setGuildLeaderboardMeta,
-  markGuildLeaderboardSuccess,
-  markGuildLeaderboardFailure,
+  setGuildUpdateLogMessage,
 };
