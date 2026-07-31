@@ -37,6 +37,17 @@ db.exec(`
   );
 `);
 
+// Migrate columns added after the table already existed on deployed volumes —
+// CREATE TABLE IF NOT EXISTS above is a no-op once the table is present.
+function ensureColumn(table, column, type) {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!columns.some((col) => col.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  }
+}
+ensureColumn('guild_leaderboards', 'last_success_at', 'TEXT');
+ensureColumn('guild_leaderboards', 'last_failure_at', 'TEXT');
+
 const upsertPlayerStmt = db.prepare(`
   INSERT INTO players (discord_id, riot_name, riot_tag, region, updated_at)
   VALUES (@discord_id, @riot_name, @riot_tag, @region, @updated_at)
@@ -83,7 +94,7 @@ const getGuildLeaderboardRowsStmt = db.prepare(`
 `);
 
 const getGuildLeaderboardMetaStmt = db.prepare(`
-  SELECT channel_id, message_id FROM guild_leaderboards WHERE guild_id = ?
+  SELECT channel_id, message_id, last_success_at, last_failure_at FROM guild_leaderboards WHERE guild_id = ?
 `);
 
 const upsertGuildLeaderboardMetaStmt = db.prepare(`
@@ -93,6 +104,14 @@ const upsertGuildLeaderboardMetaStmt = db.prepare(`
     channel_id = excluded.channel_id,
     message_id = excluded.message_id,
     updated_at = excluded.updated_at
+`);
+
+const markGuildLeaderboardSuccessStmt = db.prepare(`
+  UPDATE guild_leaderboards SET last_success_at = @at WHERE guild_id = @guild_id
+`);
+
+const markGuildLeaderboardFailureStmt = db.prepare(`
+  UPDATE guild_leaderboards SET last_failure_at = @at WHERE guild_id = @guild_id
 `);
 
 function upsertPlayer({ discordId, riotName, riotTag, region }) {
@@ -154,7 +173,12 @@ function getGuildLeaderboardRows(guildId) {
 function getGuildLeaderboardMeta(guildId) {
   const row = getGuildLeaderboardMetaStmt.get(guildId);
   if (!row) return null;
-  return { channelId: row.channel_id, messageId: row.message_id };
+  return {
+    channelId: row.channel_id,
+    messageId: row.message_id,
+    lastSuccessAt: row.last_success_at,
+    lastFailureAt: row.last_failure_at,
+  };
 }
 
 function setGuildLeaderboardMeta(guildId, channelId, messageId) {
@@ -166,6 +190,14 @@ function setGuildLeaderboardMeta(guildId, channelId, messageId) {
   });
 }
 
+function markGuildLeaderboardSuccess(guildId) {
+  markGuildLeaderboardSuccessStmt.run({ guild_id: guildId, at: new Date().toISOString() });
+}
+
+function markGuildLeaderboardFailure(guildId) {
+  markGuildLeaderboardFailureStmt.run({ guild_id: guildId, at: new Date().toISOString() });
+}
+
 module.exports = {
   upsertPlayer,
   getPlayer,
@@ -175,4 +207,6 @@ module.exports = {
   getGuildLeaderboardRows,
   getGuildLeaderboardMeta,
   setGuildLeaderboardMeta,
+  markGuildLeaderboardSuccess,
+  markGuildLeaderboardFailure,
 };

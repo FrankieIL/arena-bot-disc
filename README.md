@@ -21,9 +21,9 @@ arenasweats.lol doesn't publish a documented public API, so this bot talks to th
 
 Because this is someone's solo-run project, the bot is deliberately a polite client:
 
-- **Caching** — every lookup is cached in SQLite for `CACHE_TTL_MINUTES` (default 3 hours), matching roughly how often the leaderboard itself refreshes. Repeated `/rank` calls within that window never hit arenasweats.lol at all.
+- **Always live, cache as a fallback only** — `/setign`, `/rank`, and the leaderboard's Update button all fetch live from arenasweats.lol every time. SQLite only holds a copy of each player's *most recent successful* fetch, used purely as a fallback if the site is unreachable — never as a way to skip a request.
 - **No concurrency** — all outbound requests are funneled through a single serialized queue with a small fixed delay between them, so the bot never fires concurrent requests at the site, no matter how many Discord users query at once.
-- **No caching of failures** — a "not found" or network error isn't cached, so fixing a typo with `/setign` and immediately retrying works right away.
+- **A "not found" is never cached or masked** — a mistyped Riot ID always surfaces as a real error (not stale data), so fixing a typo with `/setign` and immediately retrying works right away. Only genuine site-unavailability falls back to the last known-good data.
 
 ## Requirements
 
@@ -56,7 +56,7 @@ Because this is someone's solo-run project, the bot is deliberately a polite cli
    - `DISCORD_TOKEN` — your bot token
    - `CLIENT_ID` — your application's client ID
    - `GUILD_ID` — local development convenience only: set it to a test server's ID so slash commands you're actively changing register there instantly. Leave it blank (the production/shared default) to register commands globally, so anyone can invite the bot and use them — allow up to an hour for global registration to propagate. Don't leave stale guild-scoped commands registered alongside global ones, or they'll show up as duplicates in that one server (see `deploy-commands.js` — re-running with `GUILD_ID` blank does not remove a previous guild-scoped registration; that needs an explicit empty `PUT` to the guild commands route).
-   - `CACHE_TTL_MINUTES` / `REQUEST_DELAY_MS` — tune caching/rate-limiting behavior if needed; the defaults are sensible.
+   - `REQUEST_DELAY_MS` — tune rate-limiting behavior if needed; the default is sensible.
 
 5. **Register slash commands**
    ```
@@ -85,12 +85,12 @@ Looks up your own rank, or another server member's if they've registered.
 /rank
 /rank user:@someone
 ```
-Replies with an embed showing tier, rating, leaderboard rank, win rate, and games played, plus whether the data came from cache or a fresh lookup.
+Replies with an embed showing tier, rating, leaderboard rank, win rate, and games played. Always fetches live; the footer only mentions cache if arenasweats.lol was unreachable and it had to fall back to the last known data for that player.
 
 Supported regions: `OCE, NA, EUW, ME, EUNE, KR, JP, BR, LAS, LAN, RU, TR, SEA, TW, VN`.
 
 **`#arena-leaderboard`**
-Created automatically the first time someone runs `/setign` in a server. Lists everyone who's registered *in that server*, sorted by rating, with medals for the top 3. It's a single message the bot edits in place — refreshed after every `/setign` and `/rank` in that server from already-cached data, or on demand via the message's **Update** button, which does a live re-fetch (bypassing everyone's normal cache) for every player on the board. Update is rate-limited to once every 5 minutes per server — click it again sooner and the bot just tells you to wait, rather than re-hitting arenasweats.lol. If the leaderboard message or channel is ever deleted, the next `/setign`, `/rank`, or button click recreates it.
+Created automatically the first time someone runs `/setign` in a server. Lists everyone who's registered *in that server*, sorted by rating, with medals for the top 3. It's a single message the bot edits in place — redrawn (from cache, no new requests) after every `/setign` and `/rank` in that server, or fully live-refreshed for every player on the board via the message's **Update** button. Update is rate-limited to once every 5 minutes per server — click it again sooner and the bot just tells you to wait, rather than re-hitting arenasweats.lol. The "Updated ..." line under the board reflects the last time a live fetch actually succeeded; if a fetch has failed more recently than the last success, a second line notes it (e.g. arenasweats.lol may be down) without touching the "Updated" timestamp. If the leaderboard message or channel is ever deleted, the next `/setign`, `/rank`, or button click recreates it.
 
 The channel is created with default (not locked-down) permissions — anyone can technically post there — but the bot actively deletes any message in that channel that isn't its own leaderboard message, keeping it clean without relying on permission overwrites. (An earlier version tried a permission-overwrite lockdown instead; it's more fragile than it looks — see the commit history if curious — so this replaces it.)
 
@@ -103,7 +103,7 @@ The bot is a stateful, always-on process (it holds a persistent Discord gateway 
 3. **Set environment variables** on the service (same names as `.env.example`, plus one addition):
    - `DISCORD_TOKEN`, `CLIENT_ID`
    - `GUILD_ID` — leave blank for a production deployment; global command registration's propagation delay doesn't matter for a service that just stays running
-   - `CACHE_TTL_MINUTES`, `REQUEST_DELAY_MS` — same as local
+   - `REQUEST_DELAY_MS` — same as local
    - `DB_PATH=/data/bot.sqlite3` — points the app at the mounted Volume instead of the local dev path
 4. **Deploy**, then check the logs for `Logged in as <botname>` to confirm it connected.
 5. **Register slash commands**: this only needs to be re-run when the command *definitions* change (not on every deploy). Do it from any machine with the bot's `DISCORD_TOKEN`/`CLIENT_ID` — Railway's one-off command runner (Shell tab, or `railway run node src/deploy-commands.js`) or locally both work identically, since registration talks to Discord's API directly and doesn't depend on where the bot process itself is running. Leave `GUILD_ID` blank wherever you run it from, so commands stay global.

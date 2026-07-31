@@ -41,10 +41,10 @@ function buildRankEmbed(riotName, riotTag, region, rankData) {
     embed.addFields({ name: 'Games Played', value: String(rankData.games_played), inline: true });
   }
 
-  const cacheNote = rankData._cached
-    ? `Cached data · fetched ${formatRelativeTime(rankData._fetchedAt)}`
-    : 'Freshly fetched from arenasweats.lol';
-  embed.setFooter({ text: cacheNote });
+  const statusNote = rankData._live
+    ? 'Freshly fetched from arenasweats.lol'
+    : `⚠️ arenasweats.lol unreachable — showing last known data from ${formatRelativeTime(rankData._fetchedAt)}`;
+  embed.setFooter({ text: statusNote });
 
   return embed;
 }
@@ -71,7 +71,7 @@ async function execute(interaction) {
     await interaction.editReply({ embeds: [embed] });
 
     if (interaction.guild) {
-      await refreshGuildLeaderboard(interaction.guild);
+      await refreshGuildLeaderboard(interaction.guild, rankData._live ? 'success' : 'failure');
     }
   } catch (err) {
     if (err instanceof PlayerNotFoundError) {
@@ -83,8 +83,11 @@ async function execute(interaction) {
     }
     if (err instanceof ArenaSweatsUnavailableError) {
       await interaction.editReply({
-        content: 'arenasweats.lol is unreachable right now. Please try again in a few minutes.',
+        content: 'arenasweats.lol is unreachable right now, and there\'s no previous data on file for this player yet. Please try again in a few minutes.',
       });
+      if (interaction.guild) {
+        await refreshGuildLeaderboard(interaction.guild, 'failure');
+      }
       return;
     }
     throw err;

@@ -1,4 +1,4 @@
-const { CACHE_TTL_MS, REQUEST_DELAY_MS } = require('./config');
+const { REQUEST_DELAY_MS } = require('./config');
 const { getCachedRank, setCachedRank } = require('./db');
 
 const BASE_URL = 'https://arenasweats.lol/api';
@@ -66,39 +66,32 @@ async function fetchLiveRank(riotName, riotTag, region) {
 }
 
 /**
- * Returns merged player_rank + player-data payload for a Riot ID, serving
- * from the SQLite cache when fresh and hitting the live API (serialized,
- * rate-limited) otherwise. Failures are never cached.
+ * Always hits the live API (serialized, rate-limited) for the current
+ * data, caching the result as the "most recent known good" copy. Only
+ * falls back to that cache if arenasweats.lol is unreachable — a genuine
+ * "player not found" is never masked by stale data. Throws if there's no
+ * cache to fall back to (e.g. a brand-new lookup while the site is down).
  */
 async function getPlayerRank(riotName, riotTag, region) {
   const cacheKey = [riotName.toLowerCase(), riotTag.toLowerCase(), region.toLowerCase()];
-  const cached = getCachedRank(...cacheKey);
-  if (cached && Date.now() - new Date(cached.fetchedAt).getTime() < CACHE_TTL_MS) {
-    return { ...cached.payload, _cached: true, _fetchedAt: cached.fetchedAt };
+
+  try {
+    const payload = await enqueue(() => fetchLiveRank(riotName, riotTag, region));
+    setCachedRank(...cacheKey, payload);
+    return { ...payload, _live: true, _fetchedAt: new Date().toISOString() };
+  } catch (err) {
+    if (err instanceof ArenaSweatsUnavailableError) {
+      const cached = getCachedRank(...cacheKey);
+      if (cached) {
+        return { ...cached.payload, _live: false, _fetchedAt: cached.fetchedAt };
+      }
+    }
+    throw err;
   }
-
-  const payload = await enqueue(() => fetchLiveRank(riotName, riotTag, region));
-  setCachedRank(...cacheKey, payload);
-  return { ...payload, _cached: false, _fetchedAt: new Date().toISOString() };
-}
-
-/**
- * Like getPlayerRank, but always hits the live API through the same
- * serialized/rate-limited queue instead of serving a cached value,
- * refreshing the cache as a side effect. For deliberate on-demand
- * refreshes (e.g. the leaderboard's Update button) where a stale-but-
- * within-TTL cache entry isn't good enough.
- */
-async function refreshPlayerRank(riotName, riotTag, region) {
-  const cacheKey = [riotName.toLowerCase(), riotTag.toLowerCase(), region.toLowerCase()];
-  const payload = await enqueue(() => fetchLiveRank(riotName, riotTag, region));
-  setCachedRank(...cacheKey, payload);
-  return payload;
 }
 
 module.exports = {
   getPlayerRank,
-  refreshPlayerRank,
   PlayerNotFoundError,
   ArenaSweatsUnavailableError,
 };
