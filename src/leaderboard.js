@@ -11,8 +11,6 @@ const {
   setGuildLeaderboardMeta,
   setGuildUpdateLogMessage,
   setGuildInfoMessage,
-  getGuildLeaderboardPositions,
-  setGuildLeaderboardPosition,
 } = require('./db');
 const { getPlayerRank } = require('./arenaSweats');
 
@@ -35,7 +33,7 @@ const refreshRow = new ActionRowBuilder().addComponents(
     .setStyle(ButtonStyle.Secondary),
 );
 
-function buildLeaderboardEmbed(rows, previousPositions = new Map()) {
+function buildLeaderboardEmbed(rows) {
   const ranked = rows
     .filter((row) => row.payload)
     .sort((a, b) => (b.payload.rating ?? 0) - (a.payload.rating ?? 0));
@@ -52,16 +50,7 @@ function buildLeaderboardEmbed(rows, previousPositions = new Map()) {
     return embed;
   }
 
-  const nameLines = ranked.map((row, i) => {
-    const position = i + 1;
-    const prefix = MEDALS[i] ?? `#${position}`;
-    const previous = previousPositions.get(row.discordId);
-    let movement = '';
-    if (previous != null && previous !== position) {
-      movement = position < previous ? ' 🟢▲' : ' 🔴▼';
-    }
-    return `${prefix} ${row.riotName}${movement}`;
-  });
+  const nameLines = ranked.map((row, i) => `${MEDALS[i] ?? `#${i + 1}`} ${row.riotName}`);
   const rankLines = ranked.map((row) => row.payload.league_rank ?? 'Unranked');
   const ratingLines = ranked.map((row) => `${row.payload.rating ?? '?'}`);
 
@@ -186,8 +175,7 @@ async function refreshGuildLeaderboard(guild) {
   try {
     const { channel, messageId } = await ensureLeaderboardChannel(guild);
     const rows = getGuildLeaderboardRows(guild.id);
-    const previousPositions = getGuildLeaderboardPositions(guild.id);
-    const embed = buildLeaderboardEmbed(rows, previousPositions);
+    const embed = buildLeaderboardEmbed(rows);
 
     let message = messageId
       ? await channel.messages.fetch(messageId).catch(() => null)
@@ -199,13 +187,6 @@ async function refreshGuildLeaderboard(guild) {
       message = await channel.send({ embeds: [embed], components: [refreshRow] });
       setGuildLeaderboardMeta(guild.id, channel.id, message.id);
     }
-
-    // Recorded after building the embed so this draw compares against the
-    // *previous* positions, not the ones it just computed.
-    const ranked = rows
-      .filter((row) => row.payload)
-      .sort((a, b) => (b.payload.rating ?? 0) - (a.payload.rating ?? 0));
-    ranked.forEach((row, i) => setGuildLeaderboardPosition(guild.id, row.discordId, i + 1));
 
     return null;
   } catch (err) {
