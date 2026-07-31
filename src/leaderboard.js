@@ -6,10 +6,17 @@ const {
   ButtonStyle,
 } = require('discord.js');
 const { getGuildLeaderboardRows, getGuildLeaderboardMeta, setGuildLeaderboardMeta } = require('./db');
+const { refreshPlayerRank } = require('./arenaSweats');
 
 const CHANNEL_NAME = 'arena-leaderboard';
 const MEDALS = ['🥇', '🥈', '🥉'];
 const REFRESH_BUTTON_ID = 'leaderboard_refresh';
+
+// Update button cooldown: a click re-fetches every registered player live
+// (bypassing their normal cache TTL), so this is the only thing standing
+// between the button and hammering arenasweats.lol on every double-click.
+const LIVE_REFRESH_COOLDOWN_MS = 5 * 60 * 1000;
+const lastLiveRefreshAt = new Map();
 
 const refreshRow = new ActionRowBuilder().addComponents(
   new ButtonBuilder()
@@ -110,4 +117,33 @@ async function refreshGuildLeaderboard(guild) {
   }
 }
 
-module.exports = { refreshGuildLeaderboard, REFRESH_BUTTON_ID };
+function getLiveRefreshCooldownRemainingMs(guildId) {
+  const last = lastLiveRefreshAt.get(guildId);
+  if (!last) return 0;
+  return Math.max(0, LIVE_REFRESH_COOLDOWN_MS - (Date.now() - last));
+}
+
+/**
+ * Re-fetches every registered player's rank live (bypassing their normal
+ * cache TTL) before redrawing the leaderboard, so an Update click reflects
+ * arenasweats.lol right now rather than whatever was last cached. Gated by
+ * a per-guild cooldown — callers should check getLiveRefreshCooldownRemainingMs
+ * first. A single player's fetch failing doesn't stop the rest.
+ */
+async function refreshGuildLeaderboardLive(guild) {
+  lastLiveRefreshAt.set(guild.id, Date.now());
+
+  const rows = getGuildLeaderboardRows(guild.id);
+  for (const row of rows) {
+    await refreshPlayerRank(row.riotName, row.riotTag, row.region).catch(() => {});
+  }
+
+  return refreshGuildLeaderboard(guild);
+}
+
+module.exports = {
+  refreshGuildLeaderboard,
+  refreshGuildLeaderboardLive,
+  getLiveRefreshCooldownRemainingMs,
+  REFRESH_BUTTON_ID,
+};

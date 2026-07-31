@@ -3,7 +3,11 @@ const { DISCORD_TOKEN } = require('./config');
 const { getGuildLeaderboardMeta } = require('./db');
 const setign = require('./commands/setign');
 const rank = require('./commands/rank');
-const { refreshGuildLeaderboard, REFRESH_BUTTON_ID } = require('./leaderboard');
+const {
+  refreshGuildLeaderboardLive,
+  getLiveRefreshCooldownRemainingMs,
+  REFRESH_BUTTON_ID,
+} = require('./leaderboard');
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
 
@@ -36,8 +40,21 @@ client.on('interactionCreate', async (interaction) => {
 
   if (interaction.isButton() && interaction.customId === REFRESH_BUTTON_ID) {
     try {
+      const cooldownMs = getLiveRefreshCooldownRemainingMs(interaction.guildId);
+      if (cooldownMs > 0) {
+        const seconds = Math.ceil(cooldownMs / 1000);
+        const minutes = Math.floor(seconds / 60);
+        const remainder = seconds % 60;
+        const wait = minutes > 0 ? `${minutes}m ${remainder}s` : `${remainder}s`;
+        await interaction.reply({
+          content: `⏳ The leaderboard was just refreshed — try again in ${wait}.`,
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
       await interaction.deferUpdate();
-      const warning = await refreshGuildLeaderboard(interaction.guild);
+      const warning = await refreshGuildLeaderboardLive(interaction.guild);
       if (warning) {
         await interaction.followUp({ content: warning, flags: MessageFlags.Ephemeral }).catch(() => {});
       }

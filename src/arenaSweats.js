@@ -82,8 +82,23 @@ async function getPlayerRank(riotName, riotTag, region) {
   return { ...payload, _cached: false, _fetchedAt: new Date().toISOString() };
 }
 
+/**
+ * Like getPlayerRank, but always hits the live API through the same
+ * serialized/rate-limited queue instead of serving a cached value,
+ * refreshing the cache as a side effect. For deliberate on-demand
+ * refreshes (e.g. the leaderboard's Update button) where a stale-but-
+ * within-TTL cache entry isn't good enough.
+ */
+async function refreshPlayerRank(riotName, riotTag, region) {
+  const cacheKey = [riotName.toLowerCase(), riotTag.toLowerCase(), region.toLowerCase()];
+  const payload = await enqueue(() => fetchLiveRank(riotName, riotTag, region));
+  setCachedRank(...cacheKey, payload);
+  return payload;
+}
+
 module.exports = {
   getPlayerRank,
+  refreshPlayerRank,
   PlayerNotFoundError,
   ArenaSweatsUnavailableError,
 };
