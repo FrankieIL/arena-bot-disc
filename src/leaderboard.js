@@ -37,21 +37,20 @@ function buildLeaderboardEmbed(rows) {
   }
 
   const nameLines = ranked.map((row, i) => `${MEDALS[i] ?? `#${i + 1}`} ${row.riotName}`);
-  const rankLines = ranked.map((row) => {
-    const tier = row.payload.league_rank ?? 'Unranked';
-    const rating = row.payload.rating ?? '?';
-    return `${tier} · ${rating}`;
-  });
+  const rankLines = ranked.map((row) => row.payload.league_rank ?? 'Unranked');
+  const ratingLines = ranked.map((row) => `${row.payload.rating ?? '?'}`);
 
   pending.forEach((row, i) => {
     const position = ranked.length + i;
     nameLines.push(`${MEDALS[position] ?? `#${position + 1}`} ${row.riotName}`);
     rankLines.push('_pending_');
+    ratingLines.push('—');
   });
 
   embed.addFields(
     { name: 'Players', value: nameLines.join('\n'), inline: true },
     { name: 'Rank', value: rankLines.join('\n'), inline: true },
+    { name: 'Rating', value: ratingLines.join('\n'), inline: true },
     { name: '​', value: `-# Updated <t:${Math.floor(Date.now() / 1000)}:R>`, inline: false },
   );
 
