@@ -165,29 +165,35 @@ async function ensureLeaderboardChannel(guild) {
   return { channel, messageId: null };
 }
 
+async function drawLeaderboardMessage(guild, channel, messageId) {
+  const rows = getGuildLeaderboardRows(guild.id);
+  const embed = buildLeaderboardEmbed(rows);
+
+  const message = messageId
+    ? await channel.messages.fetch(messageId).catch(() => null)
+    : null;
+
+  if (message) {
+    await message.edit({ embeds: [embed], components: [refreshRow] });
+  } else {
+    const sent = await channel.send({ embeds: [embed], components: [refreshRow] });
+    setGuildLeaderboardMeta(guild.id, channel.id, sent.id);
+  }
+}
+
 /**
  * Redraws the guild's leaderboard message from cached rank data only —
- * never calls arenasweats.lol itself. Non-fatal: failures (most likely
- * missing Manage Channels permission) are caught and returned as a warning
- * string, never thrown, so callers' own command replies are unaffected.
+ * never calls arenasweats.lol itself. Accepts an already-resolved
+ * `{ channel, messageId }` via `resolved` to skip re-fetching the channel
+ * when the caller has just done so (e.g. refreshGuildLeaderboardLive).
+ * Non-fatal: failures (most likely missing Manage Channels permission) are
+ * caught and returned as a warning string, never thrown, so callers' own
+ * command replies are unaffected.
  */
-async function refreshGuildLeaderboard(guild) {
+async function refreshGuildLeaderboard(guild, resolved) {
   try {
-    const { channel, messageId } = await ensureLeaderboardChannel(guild);
-    const rows = getGuildLeaderboardRows(guild.id);
-    const embed = buildLeaderboardEmbed(rows);
-
-    let message = messageId
-      ? await channel.messages.fetch(messageId).catch(() => null)
-      : null;
-
-    if (message) {
-      await message.edit({ embeds: [embed], components: [refreshRow] });
-    } else {
-      message = await channel.send({ embeds: [embed], components: [refreshRow] });
-      setGuildLeaderboardMeta(guild.id, channel.id, message.id);
-    }
-
+    const { channel, messageId } = resolved ?? (await ensureLeaderboardChannel(guild));
+    await drawLeaderboardMessage(guild, channel, messageId);
     return null;
   } catch (err) {
     return `Couldn't update the leaderboard channel (${err.message}). I likely need the "Manage Channels" permission.`;
@@ -244,12 +250,13 @@ async function sweepStrayMessages(channel) {
 async function refreshGuildLeaderboardLive(guild) {
   lastLiveRefreshAt.set(guild.id, Date.now());
 
-  const { channel } = await ensureLeaderboardChannel(guild);
+  const resolved = await ensureLeaderboardChannel(guild);
+  const { channel } = resolved;
   await sweepStrayMessages(channel);
   const rows = getGuildLeaderboardRows(guild.id);
 
   if (rows.length === 0) {
-    return refreshGuildLeaderboard(guild);
+    return refreshGuildLeaderboard(guild, resolved);
   }
 
   const statuses = new Map(rows.map((row) => [row.discordId, 'pending']));
@@ -272,7 +279,7 @@ async function refreshGuildLeaderboardLive(guild) {
     embeds: [buildUpdateLogEmbed(rows, statuses, { finished: true, allFailed, completedAt: new Date().toISOString() })],
   }).catch(() => {});
 
-  return refreshGuildLeaderboard(guild);
+  return refreshGuildLeaderboard(guild, resolved);
 }
 
 module.exports = {

@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, MessageFlags } = require('discord.js');
 const { REGIONS } = require('../config');
 const { upsertPlayer, addGuildLeaderboardMember } = require('../db');
 const { getPlayerRank } = require('../arenaSweats');
@@ -32,7 +32,7 @@ async function execute(interaction) {
   if (separatorIndex <= 0 || separatorIndex === riotId.length - 1) {
     await interaction.reply({
       content: 'That doesn\'t look like a valid Riot ID. Use the format `Name#Tag`, e.g. `PlayerOne#EUW1`.',
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
     return;
   }
@@ -40,7 +40,7 @@ async function execute(interaction) {
   const riotName = riotId.slice(0, separatorIndex).trim();
   const riotTag = riotId.slice(separatorIndex + 1).trim();
 
-  await interaction.deferReply({ ephemeral: true });
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   upsertPlayer({
     discordId: interaction.user.id,
@@ -53,7 +53,7 @@ async function execute(interaction) {
     .setColor(0x2ecc71)
     .setTitle('Riot ID registered')
     .setDescription(`\`${riotName}#${riotTag}\` (${region}) is now linked to your Discord account.`)
-    .setFooter({ text: 'Use /rank anytime to look up your current Arena rating.' });
+    .setFooter({ text: 'Check #arena-leaderboard anytime to see your current Arena rating.' });
 
   if (interaction.guild) {
     // Best-effort: seed the cache so the leaderboard doesn't show this entry as pending.
