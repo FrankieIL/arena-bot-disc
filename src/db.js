@@ -46,6 +46,7 @@ function ensureColumn(table, column, type) {
   }
 }
 ensureColumn('guild_leaderboards', 'update_log_message_id', 'TEXT');
+ensureColumn('guild_leaderboards', 'info_message_id', 'TEXT');
 
 const upsertPlayerStmt = db.prepare(`
   INSERT INTO players (discord_id, riot_name, riot_tag, region, updated_at)
@@ -93,7 +94,7 @@ const getGuildLeaderboardRowsStmt = db.prepare(`
 `);
 
 const getGuildLeaderboardMetaStmt = db.prepare(`
-  SELECT channel_id, message_id, update_log_message_id FROM guild_leaderboards WHERE guild_id = ?
+  SELECT channel_id, message_id, update_log_message_id, info_message_id FROM guild_leaderboards WHERE guild_id = ?
 `);
 
 const upsertGuildLeaderboardMetaStmt = db.prepare(`
@@ -107,6 +108,10 @@ const upsertGuildLeaderboardMetaStmt = db.prepare(`
 
 const setUpdateLogMessageStmt = db.prepare(`
   UPDATE guild_leaderboards SET update_log_message_id = @message_id WHERE guild_id = @guild_id
+`);
+
+const setInfoMessageStmt = db.prepare(`
+  UPDATE guild_leaderboards SET info_message_id = @message_id WHERE guild_id = @guild_id
 `);
 
 function upsertPlayer({ discordId, riotName, riotTag, region }) {
@@ -172,6 +177,7 @@ function getGuildLeaderboardMeta(guildId) {
     channelId: row.channel_id,
     messageId: row.message_id,
     updateLogMessageId: row.update_log_message_id,
+    infoMessageId: row.info_message_id,
   };
 }
 
@@ -188,6 +194,10 @@ function setGuildUpdateLogMessage(guildId, messageId) {
   setUpdateLogMessageStmt.run({ guild_id: guildId, message_id: messageId });
 }
 
+function setGuildInfoMessage(guildId, messageId) {
+  setInfoMessageStmt.run({ guild_id: guildId, message_id: messageId });
+}
+
 module.exports = {
   upsertPlayer,
   getPlayer,
@@ -198,4 +208,5 @@ module.exports = {
   getGuildLeaderboardMeta,
   setGuildLeaderboardMeta,
   setGuildUpdateLogMessage,
+  setGuildInfoMessage,
 };

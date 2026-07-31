@@ -10,6 +10,7 @@ const {
   getGuildLeaderboardMeta,
   setGuildLeaderboardMeta,
   setGuildUpdateLogMessage,
+  setGuildInfoMessage,
 } = require('./db');
 const { getPlayerRank } = require('./arenaSweats');
 
@@ -80,8 +81,7 @@ function buildLeaderboardEmbed(rows) {
 function buildUpdateLogEmbed(rows, statuses, { finished = false, allFailed = false, completedAt } = {}) {
   const embed = new EmbedBuilder()
     .setColor(0xf1c40f)
-    .setTitle(finished ? '🔄 Leaderboard Update' : '🔄 Updating leaderboard…')
-    .setDescription('Data is sourced from Arena Sweats: https://arenasweats.lol');
+    .setTitle(finished ? '🔄 Leaderboard Update' : '🔄 Updating leaderboard…');
 
   const nameLines = rows.map((row) => row.riotName);
   const statusLines = rows.map((row) => STATUS_EMOJI[statuses.get(row.discordId)] ?? STATUS_EMOJI.pending);
@@ -102,13 +102,51 @@ function buildUpdateLogEmbed(rows, statuses, { finished = false, allFailed = fal
   return embed;
 }
 
+function buildInfoEmbed() {
+  return new EmbedBuilder()
+    .setColor(0xf1c40f)
+    .setTitle('ℹ️ About this leaderboard')
+    .setDescription(
+      [
+        'Data is sourced from Arena Sweats: https://arenasweats.lol',
+        '',
+        '**`/setign`** `riot_id` `region` — register your Riot ID (e.g. `PlayerOne#EUW1`) so you show up below.',
+        '**`/rank`** `[user]` — look up your (or someone else\'s) current Arena rank.',
+        'Click **Update** on the leaderboard message below to refresh everyone\'s data live.',
+      ].join('\n'),
+    );
+}
+
+/**
+ * Self-healing, static info message. Only ever created (never edited) since
+ * its content doesn't change. Sent as the very first message whenever the
+ * channel itself is freshly created, so it naturally ends up on top; if it's
+ * deleted later on an existing channel, it's recreated but lands wherever
+ * that happens to be chronologically — Discord has no way to reorder
+ * messages after the fact.
+ */
+async function ensureInfoMessage(guild, channel) {
+  const meta = getGuildLeaderboardMeta(guild.id);
+  const existing = meta?.infoMessageId
+    ? await channel.messages.fetch(meta.infoMessageId).catch(() => null)
+    : null;
+
+  if (existing) return;
+
+  const message = await channel.send({ embeds: [buildInfoEmbed()] });
+  setGuildInfoMessage(guild.id, message.id);
+}
+
 async function ensureLeaderboardChannel(guild) {
   const meta = getGuildLeaderboardMeta(guild.id);
 
   if (meta) {
     const existing = guild.channels.cache.get(meta.channelId)
       ?? (await guild.channels.fetch(meta.channelId).catch(() => null));
-    if (existing) return { channel: existing, messageId: meta.messageId };
+    if (existing) {
+      await ensureInfoMessage(guild, existing);
+      return { channel: existing, messageId: meta.messageId };
+    }
   }
 
   // Plain channel, default permissions. An earlier version tried to lock
@@ -123,6 +161,8 @@ async function ensureLeaderboardChannel(guild) {
   });
 
   setGuildLeaderboardMeta(guild.id, channel.id, null);
+  // Sent immediately into the brand-new, empty channel so it's the first message.
+  await ensureInfoMessage(guild, channel);
   return { channel, messageId: null };
 }
 
