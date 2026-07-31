@@ -71,12 +71,27 @@ function buildLeaderboardEmbed(rows) {
 }
 
 /**
+ * How stale a player's underlying Arena Sweats data is — not when we last
+ * polled it, but when arenasweats.lol itself last had something to sync
+ * (ratings only move when a game finishes, so last_game_timestamp is the
+ * same signal behind the "synced X ago" hover on their own leaderboard).
+ * Rendered as a Discord relative timestamp so it keeps counting up live
+ * without needing another message edit.
+ */
+function formatDataAge(payload) {
+  const timestamp = payload?.last_game_timestamp ? Date.parse(payload.last_game_timestamp) : NaN;
+  if (Number.isNaN(timestamp)) return '—';
+  return `<t:${Math.floor(timestamp / 1000)}:R>`;
+}
+
+/**
  * The Update button's progress/result display: one row per registered
  * player with a tick/cross/hourglass showing whether their live fetch
- * succeeded, failed, or hasn't run yet this pass. Persistent and edited in
- * place across clicks, same self-healing pattern as the leaderboard message
- * itself. Owns the "Updated ..." timestamp (and the "maybe Arena Sweats is
- * down" warning, shown only when literally every fetch in the run failed).
+ * succeeded, failed, or hasn't run yet this pass, plus how old their
+ * underlying data actually is. Persistent and edited in place across
+ * clicks, same self-healing pattern as the leaderboard message itself.
+ * Owns the "Updated ..." timestamp (and the "maybe Arena Sweats is down"
+ * warning, shown only when literally every fetch in the run failed).
  */
 function buildUpdateLogEmbed(rows, statuses, { finished = false, allFailed = false, completedAt } = {}) {
   const embed = new EmbedBuilder()
@@ -85,10 +100,12 @@ function buildUpdateLogEmbed(rows, statuses, { finished = false, allFailed = fal
 
   const nameLines = rows.map((row) => row.riotName);
   const statusLines = rows.map((row) => STATUS_EMOJI[statuses.get(row.discordId)] ?? STATUS_EMOJI.pending);
+  const ageLines = rows.map((row) => formatDataAge(row.payload));
 
   embed.addFields(
     { name: 'Players', value: nameLines.join('\n'), inline: true },
     { name: 'Status', value: statusLines.join('\n'), inline: true },
+    { name: 'Age', value: ageLines.join('\n'), inline: true },
   );
 
   if (finished) {
