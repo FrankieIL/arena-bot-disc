@@ -92,7 +92,8 @@ function buildUpdateLogEmbed(rows, statuses, { finished = false, allFailed = fal
   );
 
   if (finished) {
-    const statusLine = [`-# Updated <t:${Math.floor(new Date(completedAt).getTime() / 1000)}:R>`];
+    const label = allFailed ? 'Last attempted' : 'Updated';
+    const statusLine = [`-# ${label} <t:${Math.floor(new Date(completedAt).getTime() / 1000)}:R>`];
     if (allFailed) {
       statusLine.push('-# ⚠️ Update failed — maybe Arena Sweats is down?');
     }
