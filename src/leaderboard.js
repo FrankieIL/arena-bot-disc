@@ -26,28 +26,33 @@ function buildLeaderboardEmbed(rows) {
   const pending = rows.filter((row) => !row.payload);
   const all = [...ranked, ...pending];
 
-  let body;
-  if (all.length === 0) {
-    body = 'No one has registered yet — use `/setign` to join!';
-  } else {
-    const rankLines = ranked.map((row, i) => {
-      const prefix = MEDALS[i] ?? `${i + 1}.`;
-      const tier = row.payload.league_rank ?? 'Unranked';
-      const rating = row.payload.rating ?? '?';
-      return `${prefix} **${row.riotName}** — ${tier} · ${rating} RATING`;
-    });
-
-    const pendingLines = pending.map((row) => `• **${row.riotName}** — _pending, run \`/rank\` to fetch_`);
-
-    body = [...rankLines, ...pendingLines].join('\n');
-  }
-  const updatedLine = `\n\n-# Updated <t:${Math.floor(Date.now() / 1000)}:R>`;
-
   const embed = new EmbedBuilder()
     .setColor(0xf1c40f)
     .setTitle('🏆 Arena Leaderboard')
-    .setDescription(body + updatedLine)
     .setFooter({ text: `${rows.length} player${rows.length === 1 ? '' : 's'} registered` });
+
+  if (all.length === 0) {
+    embed.setDescription('No one has registered yet — use `/setign` to join!');
+    return embed;
+  }
+
+  const nameLines = ranked.map((row, i) => `${MEDALS[i] ?? `${i + 1}.`} **${row.riotName}**`);
+  const rankLines = ranked.map((row) => {
+    const tier = row.payload.league_rank ?? 'Unranked';
+    const rating = row.payload.rating ?? '?';
+    return `${tier} · ${rating}`;
+  });
+
+  pending.forEach((row) => {
+    nameLines.push(`• **${row.riotName}**`);
+    rankLines.push('_pending_');
+  });
+
+  embed.addFields(
+    { name: 'Players', value: nameLines.join('\n'), inline: true },
+    { name: 'Rank', value: rankLines.join('\n'), inline: true },
+    { name: '​', value: `-# Updated <t:${Math.floor(Date.now() / 1000)}:R>`, inline: false },
+  );
 
   return embed;
 }
