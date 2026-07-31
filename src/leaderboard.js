@@ -37,12 +37,15 @@ const refreshRow = new ActionRowBuilder().addComponents(
  * The single ranking rule used everywhere a player list is shown — ranked
  * (has cached data) sorted by rating descending, then pending (never
  * fetched) after. Shared by the leaderboard and the update log so the two
- * always list players in the same order.
+ * always list players in the same order. Ties break on discordId, a stable
+ * key independent of input array order, so a tie can never resolve
+ * differently between the two messages depending on which order their rows
+ * happened to be in going into the sort.
  */
 function sortLeaderboardRows(rows) {
   const ranked = rows
     .filter((row) => row.payload)
-    .sort((a, b) => (b.payload.rating ?? 0) - (a.payload.rating ?? 0));
+    .sort((a, b) => (b.payload.rating ?? 0) - (a.payload.rating ?? 0) || a.discordId.localeCompare(b.discordId));
   const pending = rows.filter((row) => !row.payload);
   return { ranked, pending, all: [...ranked, ...pending] };
 }
@@ -106,11 +109,9 @@ function formatDataAge(payload) {
  * available this run, falling back to whatever was cached before it
  * started) — used for the per-player "how old is this data" text, which is
  * only shown once the run has finished; while it's in flight the number
- * would just be describing stale pre-run data, so it's hidden in favour of
- * a single "Started ... ago" line that visualises how long the run itself
- * has been going, via the same live-updating Discord timestamp trick.
+ * would just be describing stale pre-run data, so it's hidden until then.
  */
-function buildUpdateLogEmbed(rows, statuses, payloads, { finished = false, allFailed = false, completedAt, startedAt } = {}) {
+function buildUpdateLogEmbed(rows, statuses, payloads, { finished = false, allFailed = false, completedAt } = {}) {
   const embed = new EmbedBuilder()
     .setColor(0xf1c40f)
     .setTitle(finished ? '🔄 Leaderboard Update' : '🔄 Updating leaderboard…');
@@ -134,12 +135,6 @@ function buildUpdateLogEmbed(rows, statuses, payloads, { finished = false, allFa
       statusLine.push('-# ⚠️ Update failed — maybe Arena Sweats is down?');
     }
     embed.addFields({ name: '​', value: statusLine.join('\n'), inline: false });
-  } else if (startedAt) {
-    embed.addFields({
-      name: '​',
-      value: `-# Started <t:${Math.floor(new Date(startedAt).getTime() / 1000)}:R>`,
-      inline: false,
-    });
   }
 
   return embed;
@@ -248,13 +243,13 @@ function getLiveRefreshCooldownRemainingMs(guildId) {
   return Math.max(0, LIVE_REFRESH_COOLDOWN_MS - (Date.now() - last));
 }
 
-async function ensureUpdateLogMessage(guild, channel, rows, statuses, payloads, startedAt) {
+async function ensureUpdateLogMessage(guild, channel, rows, statuses, payloads) {
   const meta = getGuildLeaderboardMeta(guild.id);
   let message = meta?.updateLogMessageId
     ? await channel.messages.fetch(meta.updateLogMessageId).catch(() => null)
     : null;
 
-  const embed = buildUpdateLogEmbed(rows, statuses, payloads, { startedAt });
+  const embed = buildUpdateLogEmbed(rows, statuses, payloads);
 
   if (message) {
     await message.edit({ embeds: [embed] });
@@ -304,10 +299,9 @@ async function refreshGuildLeaderboardLive(guild) {
     return refreshGuildLeaderboard(guild, resolved);
   }
 
-  const startedAt = new Date().toISOString();
   const statuses = new Map(rows.map((row) => [row.discordId, 'pending']));
   const payloads = new Map(rows.map((row) => [row.discordId, row.payload]));
-  const logMessage = await ensureUpdateLogMessage(guild, channel, rows, statuses, payloads, startedAt);
+  const logMessage = await ensureUpdateLogMessage(guild, channel, rows, statuses, payloads);
 
   let successCount = 0;
   for (const row of rows) {
@@ -319,16 +313,22 @@ async function refreshGuildLeaderboardLive(guild) {
     } catch {
       statuses.set(row.discordId, 'failure');
     }
-    await logMessage.edit({ embeds: [buildUpdateLogEmbed(rows, statuses, payloads, { startedAt })] }).catch(() => {});
+    await logMessage.edit({ embeds: [buildUpdateLogEmbed(rows, statuses, payloads)] }).catch(() => {});
   }
 
   const allFailed = successCount === 0;
+  // Re-sort using this run's fresh payloads for the final render, so the
+  // finished state matches the order refreshGuildLeaderboard is about to
+  // draw the Arena Leaderboard in below — the fixed pre-run order above is
+  // only for the in-progress edits, where rows shouldn't jump around.
+  const finalRows = sortLeaderboardRows(
+    rows.map((row) => ({ ...row, payload: payloads.get(row.discordId) })),
+  ).all;
   await logMessage.edit({
-    embeds: [buildUpdateLogEmbed(rows, statuses, payloads, {
+    embeds: [buildUpdateLogEmbed(finalRows, statuses, payloads, {
       finished: true,
       allFailed,
       completedAt: new Date().toISOString(),
-      startedAt,
     })],
   }).catch(() => {});
 
