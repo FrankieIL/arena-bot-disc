@@ -36,7 +36,7 @@ function buildLeaderboardEmbed(rows) {
     return embed;
   }
 
-  const nameLines = ranked.map((row, i) => `${MEDALS[i] ?? `${i + 1}.`} ${row.riotName}`);
+  const nameLines = ranked.map((row, i) => `${MEDALS[i] ?? `#${i + 1}`} ${row.riotName}`);
   const rankLines = ranked.map((row) => {
     const tier = row.payload.league_rank ?? 'Unranked';
     const rating = row.payload.rating ?? '?';
@@ -45,7 +45,7 @@ function buildLeaderboardEmbed(rows) {
 
   pending.forEach((row, i) => {
     const position = ranked.length + i;
-    nameLines.push(`${MEDALS[position] ?? `${position + 1}.`} ${row.riotName}`);
+    nameLines.push(`${MEDALS[position] ?? `#${position + 1}`} ${row.riotName}`);
     rankLines.push('_pending_');
   });
 
