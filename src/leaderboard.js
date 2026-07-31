@@ -87,11 +87,12 @@ function formatDataAge(payload) {
 /**
  * The Update button's progress/result display: one row per registered
  * player with a tick/cross/hourglass showing whether their live fetch
- * succeeded, failed, or hasn't run yet this pass, plus how old their
- * underlying data actually is. Persistent and edited in place across
- * clicks, same self-healing pattern as the leaderboard message itself.
- * Owns the "Updated ..." timestamp (and the "maybe Arena Sweats is down"
- * warning, shown only when literally every fetch in the run failed).
+ * succeeded, failed, or hasn't run yet this pass, followed by how old
+ * their underlying data actually is. Persistent and edited in place
+ * across clicks, same self-healing pattern as the leaderboard message
+ * itself. Owns the "Updated ..." timestamp (and the "maybe Arena Sweats
+ * is down" warning, shown only when literally every fetch in the run
+ * failed).
  */
 function buildUpdateLogEmbed(rows, statuses, { finished = false, allFailed = false, completedAt } = {}) {
   const embed = new EmbedBuilder()
@@ -99,13 +100,14 @@ function buildUpdateLogEmbed(rows, statuses, { finished = false, allFailed = fal
     .setTitle(finished ? '🔄 Leaderboard Update' : '🔄 Updating leaderboard…');
 
   const nameLines = rows.map((row) => row.riotName);
-  const statusLines = rows.map((row) => STATUS_EMOJI[statuses.get(row.discordId)] ?? STATUS_EMOJI.pending);
-  const ageLines = rows.map((row) => formatDataAge(row.payload));
+  const statusLines = rows.map((row) => {
+    const emoji = STATUS_EMOJI[statuses.get(row.discordId)] ?? STATUS_EMOJI.pending;
+    return `${emoji} ${formatDataAge(row.payload)}`;
+  });
 
   embed.addFields(
     { name: 'Players', value: nameLines.join('\n'), inline: true },
     { name: 'Status', value: statusLines.join('\n'), inline: true },
-    { name: 'Age', value: ageLines.join('\n'), inline: true },
   );
 
   if (finished) {

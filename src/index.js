@@ -11,12 +11,39 @@ const {
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
 
 const STRAY_MESSAGE_NOTICE_LIFETIME_MS = 6000;
+const HOUR_MS = 60 * 60 * 1000;
 
 client.commands = new Collection();
 client.commands.set(setign.data.name, setign);
 
+/**
+ * Same live refresh the Update button triggers, just on a wall-clock-aligned
+ * hourly timer instead of a click — shares the same cooldown map, sweep, and
+ * log message, so an hourly tick is indistinguishable from someone pressing
+ * Update on the hour. One guild's failure (e.g. missing permissions) is
+ * caught so it can't stop the rest from refreshing.
+ */
+async function runAutoUpdate() {
+  for (const guild of client.guilds.cache.values()) {
+    try {
+      await refreshGuildLeaderboardLive(guild);
+    } catch (err) {
+      console.error(`Error auto-updating leaderboard for guild ${guild.id}:`, err);
+    }
+  }
+}
+
+function scheduleHourlyAutoUpdate() {
+  const msUntilNextHour = HOUR_MS - (Date.now() % HOUR_MS);
+  setTimeout(() => {
+    runAutoUpdate();
+    setInterval(runAutoUpdate, HOUR_MS);
+  }, msUntilNextHour);
+}
+
 client.once('clientReady', () => {
   console.log(`Logged in as ${client.user.tag}`);
+  scheduleHourlyAutoUpdate();
 });
 
 client.on('interactionCreate', async (interaction) => {

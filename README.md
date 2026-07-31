@@ -10,7 +10,7 @@ Built for a friend group's private server; the invite link below is genuinely ru
 
 - **`/setign riot_id region`** links a Riot ID to a Discord account.
 - A **`#arena-leaderboard`** channel is created automatically, ranking everyone registered in that server by rating, medals for the top 3.
-- An **Update** button on the leaderboard live-refreshes every registered player at once, with a running ✅ / ❌ / ⏳ progress display so a single failed lookup is visible without derailing the rest.
+- An **Update** button on the leaderboard live-refreshes every registered player at once, with a running ✅ / ❌ / ⏳ progress display (plus how stale each player's underlying data actually is) so a single failed lookup is visible without derailing the rest. The same refresh also runs automatically every hour, on the hour.
 - All of it is **self-healing** — delete the leaderboard message, the progress message, or the whole channel, and the next interaction quietly rebuilds whatever's missing.
 
 ## Why this is a bit more interesting than "wraps an API"
@@ -91,8 +91,8 @@ Supported regions: `OCE, NA, EUW, ME, EUNE, KR, JP, BR, LAS, LAN, RU, TR, SEA, T
 Created automatically the first time someone runs `/setign` in a server, with three bot-managed messages:
 
 1. **An info message** — pinned to the top of the channel (it's the first thing sent into a freshly created channel). Static: credits Arena Sweats as the data source with a link, and gives a one-line reminder of the `/setign` command.
-2. **The leaderboard itself** — lists everyone who's registered *in that server*, sorted by rating, with medals for the top 3. Edited in place — redrawn (from cache, no new requests) after every `/setign` in that server, or fully live-refreshed for every player on the board via its **Update** button. Update is rate-limited to once every 5 minutes per server — click it again sooner and the bot just tells you to wait, rather than re-hitting arenasweats.lol.
-3. **An update-progress message** — created the first time Update is clicked, then edited in place on every click after. Shows per-player progress: ⏳ while a player's fetch is in flight, then ✅ or ❌ once it resolves, so it's obvious if one player's update failed without affecting anyone else's. Once the run finishes, it shows "Updated ..." with a relative timestamp, plus a warning if *every* fetch in that run failed (a strong signal arenasweats.lol itself is down, not just one bad lookup).
+2. **The leaderboard itself** — lists everyone who's registered *in that server*, sorted by rating, with medals for the top 3. Edited in place — redrawn (from cache, no new requests) after every `/setign` in that server, or fully live-refreshed for every player on the board via its **Update** button (or automatically, every hour). Manual Update is rate-limited to once every 5 minutes per server — click it again sooner and the bot just tells you to wait, rather than re-hitting arenasweats.lol.
+3. **An update-progress message** — created the first time a refresh runs (manual or automatic), then edited in place on every run after. Shows per-player progress: ⏳ while a player's fetch is in flight, then ✅ or ❌ once it resolves alongside how old their underlying data actually is, so it's obvious if one player's update failed without affecting anyone else's. Once the run finishes, it shows "Updated ..." with a relative timestamp, plus a warning if *every* fetch in that run failed (a strong signal arenasweats.lol itself is down, not just one bad lookup).
 
 Each message is self-healing independently — if any of them (or the whole channel) is deleted, the next `/setign` or Update click recreates whatever's missing. The one exception is ordering: the info message is only guaranteed to be *first* when the channel itself is freshly created — if it's individually deleted and recreated later, Discord has no way to move it back above messages that already exist.
 
@@ -131,7 +131,7 @@ src/
 
 ## Possible next steps
 
-Things that would be worth adding if this grew beyond a friend-group tool: automated tests around the caching/fallback logic, a periodic background refresh (deliberately left out for now — see the serialized-queue/rate-limiting notes above for why), and pagination for servers with more registered players than an embed field comfortably holds.
+Things that would be worth adding if this grew beyond a friend-group tool: automated tests around the caching/fallback logic, and pagination for servers with more registered players than an embed field comfortably holds.
 
 ## License
 
