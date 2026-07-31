@@ -1,33 +1,40 @@
 # Arena Sweats Discord Bot
 
-A Discord bot for League of Legends players. Register your Riot ID and region once with `/setign`, and every server it's in automatically gets a self-updating `#arena-leaderboard` channel listing everyone who's registered there with their current [Arena mode](https://www.leagueoflegends.com/en-us/news/game-updates/arena-2-0/) rank from [arenasweats.lol](https://arenasweats.lol) — click **Update** on the leaderboard any time to refresh everyone live.
+A Discord bot that turns [arenasweats.lol](https://arenasweats.lol) — an undocumented, community-run stats tracker for League of Legends' [Arena mode](https://www.leagueoflegends.com/en-us/news/game-updates/arena-2-0/) — into a live, self-maintaining leaderboard for any Discord server. Register once with `/setign`; the bot creates a `#arena-leaderboard` channel that tracks everyone who's registered, refreshes on demand, and quietly repairs itself if anything gets deleted.
 
-## Add this bot to your server
+Built for a friend group's private server; the invite link below is genuinely running 24/7, not a demo screenshot.
 
-The hosted instance runs 24/7 and its commands are registered globally, so any server owner can add it — no self-hosting required:
+**[Add the bot to your server](https://discord.com/oauth2/authorize?client_id=1532425088194969701&permissions=26640&scope=bot%20applications.commands)**
 
-**[Click here to invite the bot](https://discord.com/oauth2/authorize?client_id=1532425088194969701&permissions=26640&scope=bot%20applications.commands)**
+## What it does
 
-It requests `Send Messages`, `Embed Links`, `Manage Channels`, and `Manage Messages` — no privileged intents, no message content access. `Manage Channels` creates its own `#arena-leaderboard` channel; `Manage Messages` lets it delete anything anyone else posts there, keeping it a clean, bot-only display.
+- **`/setign riot_id region`** links a Riot ID to a Discord account.
+- A **`#arena-leaderboard`** channel is created automatically, ranking everyone registered in that server by rating, medals for the top 3.
+- An **Update** button on the leaderboard live-refreshes every registered player at once, with a running ✅ / ❌ / ⏳ progress display so a single failed lookup is visible without derailing the rest.
+- All of it is **self-healing** — delete the leaderboard message, the progress message, or the whole channel, and the next interaction quietly rebuilds whatever's missing.
 
-> If the bot was invited before these permissions were added, re-invite it with the link above (Discord merges new permissions in — no need to kick it first), or grant `Manage Channels` + `Manage Messages` to its role manually in Server Settings.
+## Why this is a bit more interesting than "wraps an API"
 
-## How it works
+arenasweats.lol has no public API — it's a hobbyist's site with no rate-limit docs, no changelog, and no guarantee it'll be reachable tomorrow. A few decisions came out of designing around that:
 
-arenasweats.lol doesn't publish a documented public API, so this bot talks to the same internal JSON endpoints the site's own search bar uses (found by inspecting its network requests):
+- **Reverse-engineered, not scraped.** The site's own frontend calls internal JSON endpoints to render its search results; those were found by watching network requests in DevTools and are called directly (`src/arenaSweats.js`) — no HTML parsing, no headless browser.
+- **A single serialized request queue.** Every outbound call funnels through one `enqueue()` chain with a fixed delay between requests, so the bot can never fire concurrent requests at someone else's small side project, no matter how many Discord users trigger lookups at once.
+- **Cache as a fallback, not a shortcut.** Every player lookup always hits the live API — SQLite only stores the *most recent successful* response per player, used solely to keep the leaderboard showing a reasonable last-known value if arenasweats.lol is down. A genuine "player not found" is never masked by stale cached data; only actual unavailability triggers the fallback.
+- **Distributed state that recovers from deletion.** The leaderboard, its update-progress log, and the channel itself are each tracked by ID in SQLite and re-created independently the next time they're needed — the bot never assumes Discord state matches its own records.
+- **Designed around real Discord API constraints**, discovered the hard way while iterating on the layout:
+  - Embed "inline" fields only ever render in a fixed 3-column grid — a 4th wraps to a new row instead of forming a real column.
+  - A leaderboard row starting with `4. Name` gets silently parsed as Markdown's ordered-list syntax, giving that row different line spacing than everything else in the same field.
+  - True ephemeral ("only you can see this") messages only exist for interaction responses (slash commands, buttons) — a plain message send has no way to reply privately, which shaped how the auto-moderation notices work.
 
-- `GET /api/player_rank?search_term=<name>#<tag>&region=<region>&season=live` — tier, rating, leaderboard position
-- `GET /api/player-data?player_name=<name>#<tag>&region=<region>&season=live` — games played, wins, placement stats
+None of this needs to be bulletproof — it's a bot for one Discord server — but building it to *behave* politely and recover gracefully was more interesting than the alternative.
 
-Because this is someone's solo-run project, the bot is deliberately a polite client:
+## Tech stack
 
-- **Always live, cache as a fallback only** — `/setign` and the leaderboard's Update button both fetch live from arenasweats.lol every time. SQLite only holds a copy of each player's *most recent successful* fetch, used purely as a fallback if the site is unreachable — never as a way to skip a request.
-- **No concurrency** — all outbound requests are funneled through a single serialized queue with a small fixed delay between them, so the bot never fires concurrent requests at the site, no matter how many Discord users query at once.
-- **A "not found" is never cached or masked** — a mistyped Riot ID always surfaces as a real error (not stale data), so fixing a typo with `/setign` and immediately retrying works right away. Only genuine site-unavailability falls back to the last known-good data.
+Node.js · [discord.js](https://discord.js.org/) v14 · SQLite via Node's built-in [`node:sqlite`](https://nodejs.org/api/sqlite.html) (no native/compiled dependencies) · Docker · deployed on [Railway](https://railway.app)
 
 ## Requirements
 
-- [Node.js](https://nodejs.org/) 22.5 or later (needed for built-in `fetch` and the built-in `node:sqlite` module — no native/compiled dependencies required)
+- [Node.js](https://nodejs.org/) 22.5 or later (built-in `fetch` and `node:sqlite`)
 - A Discord application/bot — create one at the [Discord Developer Portal](https://discord.com/developers/applications)
 
 ## Setup
@@ -78,19 +85,18 @@ Registers your Riot ID for future lookups.
 ```
 /setign riot_id:PlayerOne#EUW1 region:EUW
 ```
-
 Supported regions: `OCE, NA, EUW, ME, EUNE, KR, JP, BR, LAS, LAN, RU, TR, SEA, TW, VN`.
 
 **`#arena-leaderboard`**
 Created automatically the first time someone runs `/setign` in a server, with three bot-managed messages:
 
-1. **An info message** — pinned to the top of the channel (it's the first thing sent into a freshly created channel). Static: credits Arena Sweats as the data source with a link, and gives a one-line reminder of the `/setign` command and the Update button.
+1. **An info message** — pinned to the top of the channel (it's the first thing sent into a freshly created channel). Static: credits Arena Sweats as the data source with a link, and gives a one-line reminder of the `/setign` command.
 2. **The leaderboard itself** — lists everyone who's registered *in that server*, sorted by rating, with medals for the top 3. Edited in place — redrawn (from cache, no new requests) after every `/setign` in that server, or fully live-refreshed for every player on the board via its **Update** button. Update is rate-limited to once every 5 minutes per server — click it again sooner and the bot just tells you to wait, rather than re-hitting arenasweats.lol.
 3. **An update-progress message** — created the first time Update is clicked, then edited in place on every click after. Shows per-player progress: ⏳ while a player's fetch is in flight, then ✅ or ❌ once it resolves, so it's obvious if one player's update failed without affecting anyone else's. Once the run finishes, it shows "Updated ..." with a relative timestamp, plus a warning if *every* fetch in that run failed (a strong signal arenasweats.lol itself is down, not just one bad lookup).
 
 Each message is self-healing independently — if any of them (or the whole channel) is deleted, the next `/setign` or Update click recreates whatever's missing. The one exception is ordering: the info message is only guaranteed to be *first* when the channel itself is freshly created — if it's individually deleted and recreated later, Discord has no way to move it back above messages that already exist.
 
-The channel is created with default (not locked-down) permissions — anyone can technically post there — but the bot actively deletes any message in that channel that isn't its own, keeping it clean without relying on permission overwrites. (An earlier version tried a permission-overwrite lockdown instead; it's more fragile than it looks — see the commit history if curious — so this replaces it.)
+The channel is created with default (not locked-down) permissions — anyone can technically post there — but the bot actively deletes any message in that channel that isn't its own (with a self-deleting notice to whoever posted it), and the Update button also sweeps recent channel history as a backstop for anything that slips through.
 
 ## Deploying to Railway (24/7 hosting)
 
@@ -113,7 +119,7 @@ Only run one instance of the bot at a time — a local `npm start` and the Railw
 ```
 Dockerfile                 # container build for cloud deployment (e.g. Railway)
 src/
-├── index.js              # bot bootstrap and command routing
+├── index.js              # bot bootstrap, interaction routing, moderation
 ├── deploy-commands.js     # registers slash commands with Discord
 ├── config.js              # env loading and constants
 ├── db.js                  # SQLite schema + queries (node:sqlite)
@@ -122,3 +128,11 @@ src/
 └── commands/
     └── setign.js
 ```
+
+## Possible next steps
+
+Things that would be worth adding if this grew beyond a friend-group tool: automated tests around the caching/fallback logic, a periodic background refresh (deliberately left out for now — see the serialized-queue/rate-limiting notes above for why), and pagination for servers with more registered players than an embed field comfortably holds.
+
+## License
+
+[MIT](LICENSE)

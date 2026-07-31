@@ -1,7 +1,7 @@
 {
   "name": "arena-sweats-bot",
   "version": "1.0.0",
-  "description": "Discord bot for registering Riot IDs and looking up League of Legends Arena mode rank from arenasweats.lol",
+  "description": "Discord bot that turns arenasweats.lol into a live, self-maintaining Arena mode leaderboard for any server",
   "main": "src/index.js",
   "type": "commonjs",
   "scripts": {
