@@ -47,6 +47,7 @@ function ensureColumn(table, column, type) {
 }
 ensureColumn('guild_leaderboards', 'update_log_message_id', 'TEXT');
 ensureColumn('guild_leaderboards', 'info_message_id', 'TEXT');
+ensureColumn('guild_leaderboard_members', 'last_position', 'INTEGER');
 
 const upsertPlayerStmt = db.prepare(`
   INSERT INTO players (discord_id, riot_name, riot_tag, region, updated_at)
@@ -107,6 +108,15 @@ const setUpdateLogMessageStmt = db.prepare(`
 
 const setInfoMessageStmt = db.prepare(`
   UPDATE guild_leaderboards SET info_message_id = @message_id WHERE guild_id = @guild_id
+`);
+
+const getGuildLeaderboardPositionsStmt = db.prepare(`
+  SELECT discord_id, last_position FROM guild_leaderboard_members WHERE guild_id = ?
+`);
+
+const setGuildLeaderboardPositionStmt = db.prepare(`
+  UPDATE guild_leaderboard_members SET last_position = @position
+  WHERE guild_id = @guild_id AND discord_id = @discord_id
 `);
 
 function upsertPlayer({ discordId, riotName, riotTag, region }) {
@@ -181,6 +191,15 @@ function setGuildInfoMessage(guildId, messageId) {
   setInfoMessageStmt.run({ guild_id: guildId, message_id: messageId });
 }
 
+function getGuildLeaderboardPositions(guildId) {
+  const rows = getGuildLeaderboardPositionsStmt.all(guildId);
+  return new Map(rows.map((row) => [row.discord_id, row.last_position]));
+}
+
+function setGuildLeaderboardPosition(guildId, discordId, position) {
+  setGuildLeaderboardPositionStmt.run({ guild_id: guildId, discord_id: discordId, position });
+}
+
 module.exports = {
   upsertPlayer,
   getCachedRank,
@@ -191,4 +210,6 @@ module.exports = {
   setGuildLeaderboardMeta,
   setGuildUpdateLogMessage,
   setGuildInfoMessage,
+  getGuildLeaderboardPositions,
+  setGuildLeaderboardPosition,
 };
