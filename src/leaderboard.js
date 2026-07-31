@@ -24,19 +24,32 @@ function buildLeaderboardEmbed(rows) {
     .filter((row) => row.payload)
     .sort((a, b) => (b.payload.rating ?? 0) - (a.payload.rating ?? 0));
   const pending = rows.filter((row) => !row.payload);
+  const all = [...ranked, ...pending];
 
-  const lines = ranked.map((row, i) => {
-    const prefix = MEDALS[i] ?? `${i + 1}.`;
-    const tier = row.payload.league_rank ?? 'Unranked';
-    const rating = row.payload.rating ?? '?';
-    return `${prefix} **${row.riotName}#${row.riotTag}** — ${tier} · ${rating} RP`;
-  });
+  let body;
+  if (all.length === 0) {
+    body = 'No one has registered yet — use `/setign` to join!';
+  } else {
+    const prefixWidth = 4;
+    const nameWidth = Math.max('Players'.length, ...all.map((row) => row.riotName.length)) + 2;
+    const header = `${' '.repeat(prefixWidth)}${'Players'.padEnd(nameWidth)}Rank`;
+    const separator = '─'.repeat(header.length);
 
-  for (const row of pending) {
-    lines.push(`• **${row.riotName}#${row.riotTag}** — _pending, run \`/rank\` to fetch_`);
+    const rankLines = ranked.map((row, i) => {
+      const prefix = (MEDALS[i] ?? `${i + 1}.`).padEnd(prefixWidth);
+      const name = row.riotName.padEnd(nameWidth);
+      const tier = row.payload.league_rank ?? 'Unranked';
+      const rating = row.payload.rating ?? '?';
+      return `${prefix}${name}${tier} · ${rating} RATING`;
+    });
+
+    const pendingLines = pending.map((row) => {
+      const prefix = '•'.padEnd(prefixWidth);
+      return `${prefix}${row.riotName.padEnd(nameWidth)}pending — run /rank`;
+    });
+
+    body = '```\n' + [header, separator, ...rankLines, ...pendingLines].join('\n') + '\n```';
   }
-
-  const body = lines.length > 0 ? lines.join('\n') : 'No one has registered yet — use `/setign` to join!';
   const updatedLine = `\n\n-# Updated <t:${Math.floor(Date.now() / 1000)}:R>`;
 
   const embed = new EmbedBuilder()
