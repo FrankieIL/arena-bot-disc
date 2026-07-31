@@ -80,7 +80,8 @@ function buildLeaderboardEmbed(rows) {
 function buildUpdateLogEmbed(rows, statuses, { finished = false, allFailed = false, completedAt } = {}) {
   const embed = new EmbedBuilder()
     .setColor(0xf1c40f)
-    .setTitle(finished ? '🔄 Leaderboard Update' : '🔄 Updating leaderboard…');
+    .setTitle(finished ? '🔄 Leaderboard Update' : '🔄 Updating leaderboard…')
+    .setDescription('Data is sourced from Arena Sweats: https://arenasweats.lol');
 
   const nameLines = rows.map((row) => row.riotName);
   const statusLines = rows.map((row) => STATUS_EMOJI[statuses.get(row.discordId)] ?? STATUS_EMOJI.pending);
