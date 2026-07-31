@@ -33,12 +33,22 @@ const refreshRow = new ActionRowBuilder().addComponents(
     .setStyle(ButtonStyle.Secondary),
 );
 
-function buildLeaderboardEmbed(rows) {
+/**
+ * The single ranking rule used everywhere a player list is shown — ranked
+ * (has cached data) sorted by rating descending, then pending (never
+ * fetched) after. Shared by the leaderboard and the update log so the two
+ * always list players in the same order.
+ */
+function sortLeaderboardRows(rows) {
   const ranked = rows
     .filter((row) => row.payload)
     .sort((a, b) => (b.payload.rating ?? 0) - (a.payload.rating ?? 0));
   const pending = rows.filter((row) => !row.payload);
-  const all = [...ranked, ...pending];
+  return { ranked, pending, all: [...ranked, ...pending] };
+}
+
+function buildLeaderboardEmbed(rows) {
+  const { ranked, pending, all } = sortLeaderboardRows(rows);
 
   const embed = new EmbedBuilder()
     .setColor(0xf1c40f)
@@ -86,15 +96,21 @@ function formatDataAge(payload) {
 
 /**
  * The Update button's progress/result display: one row per registered
- * player with a tick/cross/hourglass showing whether their live fetch
- * succeeded, failed, or hasn't run yet this pass, followed by how old
- * their underlying data actually is. Persistent and edited in place
- * across clicks, same self-healing pattern as the leaderboard message
- * itself. Owns the "Updated ..." timestamp (and the "maybe Arena Sweats
- * is down" warning, shown only when literally every fetch in the run
- * failed).
+ * player (in the same order as the leaderboard, via sortLeaderboardRows)
+ * with a tick/cross/hourglass showing whether their live fetch succeeded,
+ * failed, or hasn't run yet this pass. Persistent and edited in place
+ * across clicks/hourly ticks, same self-healing pattern as the leaderboard
+ * message itself.
+ *
+ * `payloads` holds each player's latest known data (freshly fetched where
+ * available this run, falling back to whatever was cached before it
+ * started) — used for the per-player "how old is this data" text, which is
+ * only shown once the run has finished; while it's in flight the number
+ * would just be describing stale pre-run data, so it's hidden in favour of
+ * a single "Started ... ago" line that visualises how long the run itself
+ * has been going, via the same live-updating Discord timestamp trick.
  */
-function buildUpdateLogEmbed(rows, statuses, { finished = false, allFailed = false, completedAt } = {}) {
+function buildUpdateLogEmbed(rows, statuses, payloads, { finished = false, allFailed = false, completedAt, startedAt } = {}) {
   const embed = new EmbedBuilder()
     .setColor(0xf1c40f)
     .setTitle(finished ? '🔄 Leaderboard Update' : '🔄 Updating leaderboard…');
@@ -102,7 +118,8 @@ function buildUpdateLogEmbed(rows, statuses, { finished = false, allFailed = fal
   const nameLines = rows.map((row) => row.riotName);
   const statusLines = rows.map((row) => {
     const emoji = STATUS_EMOJI[statuses.get(row.discordId)] ?? STATUS_EMOJI.pending;
-    return `${emoji} ${formatDataAge(row.payload)}`;
+    if (!finished) return emoji;
+    return `${emoji} ${formatDataAge(payloads.get(row.discordId))}`;
   });
 
   embed.addFields(
@@ -117,6 +134,12 @@ function buildUpdateLogEmbed(rows, statuses, { finished = false, allFailed = fal
       statusLine.push('-# ⚠️ Update failed — maybe Arena Sweats is down?');
     }
     embed.addFields({ name: '​', value: statusLine.join('\n'), inline: false });
+  } else if (startedAt) {
+    embed.addFields({
+      name: '​',
+      value: `-# Started <t:${Math.floor(new Date(startedAt).getTime() / 1000)}:R>`,
+      inline: false,
+    });
   }
 
   return embed;
@@ -225,13 +248,13 @@ function getLiveRefreshCooldownRemainingMs(guildId) {
   return Math.max(0, LIVE_REFRESH_COOLDOWN_MS - (Date.now() - last));
 }
 
-async function ensureUpdateLogMessage(guild, channel, rows, statuses) {
+async function ensureUpdateLogMessage(guild, channel, rows, statuses, payloads, startedAt) {
   const meta = getGuildLeaderboardMeta(guild.id);
   let message = meta?.updateLogMessageId
     ? await channel.messages.fetch(meta.updateLogMessageId).catch(() => null)
     : null;
 
-  const embed = buildUpdateLogEmbed(rows, statuses);
+  const embed = buildUpdateLogEmbed(rows, statuses, payloads, { startedAt });
 
   if (message) {
     await message.edit({ embeds: [embed] });
@@ -272,30 +295,41 @@ async function refreshGuildLeaderboardLive(guild) {
   const resolved = await ensureLeaderboardChannel(guild);
   const { channel } = resolved;
   await sweepStrayMessages(channel);
-  const rows = getGuildLeaderboardRows(guild.id);
+  // Fixed for the whole run — the same order the leaderboard itself uses,
+  // computed once up front so rows don't jump around mid-update as fresher
+  // data comes in.
+  const rows = sortLeaderboardRows(getGuildLeaderboardRows(guild.id)).all;
 
   if (rows.length === 0) {
     return refreshGuildLeaderboard(guild, resolved);
   }
 
+  const startedAt = new Date().toISOString();
   const statuses = new Map(rows.map((row) => [row.discordId, 'pending']));
-  const logMessage = await ensureUpdateLogMessage(guild, channel, rows, statuses);
+  const payloads = new Map(rows.map((row) => [row.discordId, row.payload]));
+  const logMessage = await ensureUpdateLogMessage(guild, channel, rows, statuses, payloads, startedAt);
 
   let successCount = 0;
   for (const row of rows) {
     try {
       const result = await getPlayerRank(row.riotName, row.riotTag, row.region);
       statuses.set(row.discordId, result._live ? 'success' : 'failure');
+      payloads.set(row.discordId, result);
       if (result._live) successCount += 1;
     } catch {
       statuses.set(row.discordId, 'failure');
     }
-    await logMessage.edit({ embeds: [buildUpdateLogEmbed(rows, statuses)] }).catch(() => {});
+    await logMessage.edit({ embeds: [buildUpdateLogEmbed(rows, statuses, payloads, { startedAt })] }).catch(() => {});
   }
 
   const allFailed = successCount === 0;
   await logMessage.edit({
-    embeds: [buildUpdateLogEmbed(rows, statuses, { finished: true, allFailed, completedAt: new Date().toISOString() })],
+    embeds: [buildUpdateLogEmbed(rows, statuses, payloads, {
+      finished: true,
+      allFailed,
+      completedAt: new Date().toISOString(),
+      startedAt,
+    })],
   }).catch(() => {});
 
   return refreshGuildLeaderboard(guild, resolved);
