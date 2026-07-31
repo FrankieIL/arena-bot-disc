@@ -8,6 +8,7 @@ const {
 const { getGuildLeaderboardRows, getGuildLeaderboardMeta, setGuildLeaderboardMeta } = require('./db');
 
 const CHANNEL_NAME = 'arena-leaderboard';
+const MEDALS = ['🥇', '🥈', '🥉'];
 const REFRESH_BUTTON_ID = 'leaderboard_refresh';
 
 const refreshRow = new ActionRowBuilder().addComponents(
@@ -35,16 +36,17 @@ function buildLeaderboardEmbed(rows) {
     return embed;
   }
 
-  const nameLines = ranked.map((row, i) => `-# ${i + 1}. ${row.riotName}`);
+  const nameLines = ranked.map((row, i) => `${MEDALS[i] ?? `${i + 1}.`} ${row.riotName}`);
   const rankLines = ranked.map((row) => {
     const tier = row.payload.league_rank ?? 'Unranked';
     const rating = row.payload.rating ?? '?';
-    return `-# ${tier} · ${rating}`;
+    return `${tier} · ${rating}`;
   });
 
   pending.forEach((row, i) => {
-    nameLines.push(`-# ${ranked.length + i + 1}. ${row.riotName}`);
-    rankLines.push('-# pending');
+    const position = ranked.length + i;
+    nameLines.push(`${MEDALS[position] ?? `${position + 1}.`} ${row.riotName}`);
+    rankLines.push('_pending_');
   });
 
   embed.addFields(
