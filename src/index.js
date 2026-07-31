@@ -10,6 +10,8 @@ const {
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
 
+const STRAY_MESSAGE_NOTICE_LIFETIME_MS = 6000;
+
 client.commands = new Collection();
 client.commands.set(setign.data.name, setign);
 
@@ -69,6 +71,15 @@ client.on('messageCreate', async (message) => {
   if (!meta || message.channel.id !== meta.channelId) return;
 
   await message.delete().catch(() => {});
+
+  const notice = await message.channel.send({
+    content: `⚠️ ${message.author}, this channel is for the leaderboard only — your message was removed.`,
+    allowedMentions: { users: [message.author.id] },
+  }).catch(() => null);
+
+  if (notice) {
+    setTimeout(() => notice.delete().catch(() => {}), STRAY_MESSAGE_NOTICE_LIFETIME_MS);
+  }
 });
 
 client.login(DISCORD_TOKEN);

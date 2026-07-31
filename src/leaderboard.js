@@ -220,6 +220,21 @@ async function ensureUpdateLogMessage(guild, channel, rows, statuses) {
 }
 
 /**
+ * Non-bot messages are auto-deleted on sight (see messageCreate in
+ * index.js), but occasionally one slips past — so an Update click also
+ * sweeps recent channel history for anything that isn't ours as a backstop.
+ */
+async function sweepStrayMessages(channel) {
+  const messages = await channel.messages.fetch({ limit: 50 }).catch(() => null);
+  if (!messages) return;
+
+  const stray = messages.filter((msg) => msg.author.id !== channel.client.user.id);
+  if (stray.size === 0) return;
+
+  await channel.bulkDelete(stray, true).catch(() => {});
+}
+
+/**
  * Re-fetches every registered player's rank live, updating a dedicated
  * progress message (created/edited in place, same channel as the
  * leaderboard) as each one completes, then redraws the leaderboard itself.
@@ -231,6 +246,7 @@ async function refreshGuildLeaderboardLive(guild) {
   lastLiveRefreshAt.set(guild.id, Date.now());
 
   const { channel } = await ensureLeaderboardChannel(guild);
+  await sweepStrayMessages(channel);
   const rows = getGuildLeaderboardRows(guild.id);
 
   if (rows.length === 0) {
