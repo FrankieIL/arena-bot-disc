@@ -13,6 +13,7 @@ const {
   setGuildInfoMessage,
 } = require('./db');
 const { getPlayerRank } = require('./arenaSweats');
+const RANK_EMOJIS = require('./rankEmojis');
 
 const CHANNEL_NAME = 'arena-leaderboard';
 const MEDALS = ['🥇', '🥈', '🥉'];
@@ -107,11 +108,15 @@ function formatRegionRank(row) {
 /**
  * league_rank includes trailing "NN LP" for divisional tiers (e.g.
  * "Diamond I 45 LP") — stripped since the numeric rating alongside it
- * already conveys progress within the tier.
+ * already conveys progress within the tier. Prefixed with that tier's icon
+ * (see rankEmojis.js) when one's been uploaded; the first word of the tier
+ * text (e.g. "Diamond" out of "Diamond I") is the lookup key.
  */
 function formatTier(payload) {
-  const tier = payload.league_rank ?? 'Unranked';
-  return tier.replace(/\s*\d+\s*lp\b/i, '').trim();
+  const tier = (payload.league_rank ?? 'Unranked').replace(/\s*\d+\s*lp\b/i, '').trim();
+  const key = tier.split(' ')[0].toLowerCase();
+  const icon = RANK_EMOJIS[key];
+  return icon ? `${icon} ${tier}` : tier;
 }
 
 /**
