@@ -64,23 +64,35 @@ function buildLeaderboardEmbed(rows) {
   }
 
   const nameLines = ranked.map((row, i) => `${MEDALS[i] ?? `#${i + 1}`} ${row.riotName}`);
-  const rankLines = ranked.map((row) => row.payload.league_rank ?? 'Unranked');
-  const ratingLines = ranked.map((row) => `${row.payload.rating ?? '?'}`);
+  const rankLines = ranked.map((row) => `${row.payload.league_rank ?? 'Unranked'} · ${row.payload.rating ?? '?'}`);
+  const regionRankLines = ranked.map((row) => formatRegionRank(row));
 
   pending.forEach((row, i) => {
     const position = ranked.length + i;
     nameLines.push(`${MEDALS[position] ?? `#${position + 1}`} ${row.riotName}`);
     rankLines.push('_pending_');
-    ratingLines.push('—');
+    regionRankLines.push('—');
   });
 
   embed.addFields(
     { name: 'Players', value: nameLines.join('\n'), inline: true },
     { name: 'Rank', value: rankLines.join('\n'), inline: true },
-    { name: 'Rating', value: ratingLines.join('\n'), inline: true },
+    { name: 'Region #', value: regionRankLines.join('\n'), inline: true },
   );
 
   return embed;
+}
+
+/**
+ * Position on the player's own region's leaderboard (Arena Sweats'
+ * `player_rank` field) — not comparable across players registered under
+ * different regions, so each line is prefixed with that player's region
+ * rather than assuming everyone's on the same one.
+ */
+function formatRegionRank(row) {
+  const rank = row.payload.player_rank;
+  if (rank == null) return '—';
+  return `${row.region.toUpperCase()} #${rank.toLocaleString()}`;
 }
 
 /**
