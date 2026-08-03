@@ -5,7 +5,7 @@ module.exports = {
   silver: '<:rank_silver:1533967127877386511>',
   gold: '<:rank_gold:1533967128493818059>',
   platinum: '<:rank_platinum:1533967133493563393>',
-  emerald: '<:rank_emerald:1533967134613311621>',
+  emerald: '<:rank_emerald:1533969671173177446>',
   diamond: '<:rank_diamond:1533967135498305556>',
   master: '<:rank_master:1533967136480038982>',
   grandmaster: '<:rank_grandmaster:1533967137524154378>',
