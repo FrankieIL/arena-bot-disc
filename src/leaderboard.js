@@ -64,20 +64,20 @@ function buildLeaderboardEmbed(rows) {
   }
 
   const nameLines = ranked.map((row, i) => `${formatServerPosition(i)} ${row.riotName}`);
-  const rankLines = ranked.map((row) => `${formatTier(row.payload)} (${row.payload.rating ?? '?'})`);
-  const regionRankLines = ranked.map((row) => formatRegionRank(row));
+  const rankLines = ranked.map((row) => `${formatTier(row.payload)} (${formatRegionRank(row)})`);
+  const ratingLines = ranked.map((row) => `${row.payload.rating ?? '?'}`);
 
   pending.forEach((row, i) => {
     const position = ranked.length + i;
     nameLines.push(`${formatServerPosition(position)} ${row.riotName}`);
     rankLines.push('_pending_');
-    regionRankLines.push('—');
+    ratingLines.push('—');
   });
 
   embed.addFields(
     { name: 'Players', value: nameLines.join('\n'), inline: true },
-    { name: 'Region', value: regionRankLines.join('\n'), inline: true },
-    { name: 'Rank (Rating)', value: rankLines.join('\n'), inline: true },
+    { name: 'Rank', value: rankLines.join('\n'), inline: true },
+    { name: 'Rating', value: ratingLines.join('\n'), inline: true },
   );
 
   return embed;
