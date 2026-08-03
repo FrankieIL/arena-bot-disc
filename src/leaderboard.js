@@ -76,8 +76,8 @@ function buildLeaderboardEmbed(rows) {
 
   embed.addFields(
     { name: 'Players', value: nameLines.join('\n'), inline: true },
+    { name: 'Region', value: regionRankLines.join('\n'), inline: true },
     { name: 'Rank (Rating)', value: rankLines.join('\n'), inline: true },
-    { name: 'Region #', value: regionRankLines.join('\n'), inline: true },
   );
 
   return embed;
