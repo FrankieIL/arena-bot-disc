@@ -87,14 +87,13 @@ function buildLeaderboardEmbed(rows) {
 
 /**
  * Position on the player's own region's leaderboard (Arena Sweats'
- * `player_rank` field) — not comparable across players registered under
- * different regions, so each line is prefixed with that player's region
- * rather than assuming everyone's on the same one.
+ * `player_rank` field). Not comparable across players registered under
+ * different regions, but shown unlabeled for brevity.
  */
 function formatRegionRank(row) {
   const rank = row.payload.player_rank;
   if (rank == null) return '—';
-  return `${row.region.toUpperCase()} #${rank.toLocaleString()}`;
+  return `· ${rank.toLocaleString()} ·`;
 }
 
 /**
