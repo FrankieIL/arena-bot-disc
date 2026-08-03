@@ -63,24 +63,34 @@ function buildLeaderboardEmbed(rows) {
     return embed;
   }
 
-  const nameLines = ranked.map((row, i) => `${MEDALS[i] ?? `#${i + 1}`} ${row.riotName}`);
+  const nameLines = ranked.map((row, i) => `${formatServerPosition(i)} ${row.riotName}`);
   const rankLines = ranked.map((row) => `${formatTier(row.payload)} (${row.payload.rating ?? '?'})`);
   const regionRankLines = ranked.map((row) => formatRegionRank(row));
 
   pending.forEach((row, i) => {
     const position = ranked.length + i;
-    nameLines.push(`${MEDALS[position] ?? `#${position + 1}`} ${row.riotName}`);
+    nameLines.push(`${formatServerPosition(position)} ${row.riotName}`);
     rankLines.push('_pending_');
     regionRankLines.push('—');
   });
 
   embed.addFields(
     { name: 'Players', value: nameLines.join('\n'), inline: true },
-    { name: 'Rank', value: rankLines.join('\n'), inline: true },
+    { name: 'Rank (Rating)', value: rankLines.join('\n'), inline: true },
     { name: 'Region #', value: regionRankLines.join('\n'), inline: true },
   );
 
   return embed;
+}
+
+/**
+ * Medal for the top 3, otherwise "N." for the rest — the period is
+ * backslash-escaped so Discord doesn't silently parse a row starting with
+ * "4. Name" as Markdown ordered-list syntax (see README's Discord quirks
+ * section), which would give that row different line spacing than the rest.
+ */
+function formatServerPosition(index) {
+  return MEDALS[index] ?? `${index + 1}\\.`;
 }
 
 /**
