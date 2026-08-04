@@ -232,10 +232,13 @@ function updateStatusTitle({ allFailed, completedAt }) {
 }
 
 /**
- * Resting-state view of the update log: while idle, a single title line
- * ("Updated X ago"); while a run is in progress, a single line of the same
- * tick/cross/hourglass emoji as the expanded table, in the same row order,
- * so progress is still visible live without the full per-player breakdown.
+ * Resting-state view of the update log: while idle, the title line
+ * ("Updated X ago") plus a failure count underneath if the last run had
+ * any — nothing extra when it was clean, the site-down wording from the
+ * expanded view's own warning if every fetch failed. While a run is in
+ * progress, a single line of the same tick/cross/hourglass emoji as the
+ * expanded table, in the same row order, so progress is still visible live
+ * without the full per-player breakdown.
  */
 function buildCollapsedUpdateLogEmbed(rows, statuses, { finished, allFailed, completedAt }) {
   const embed = new EmbedBuilder().setColor(0xf1c40f);
@@ -248,6 +251,18 @@ function buildCollapsedUpdateLogEmbed(rows, statuses, { finished, allFailed, com
   }
 
   embed.setTitle(updateStatusTitle({ allFailed, completedAt }));
+
+  if (completedAt) {
+    if (allFailed) {
+      embed.setDescription('-# ⚠️ Update failed — maybe Arena Sweats is down?');
+    } else {
+      const failedCount = rows.filter((row) => statuses.get(row.discordId) === 'failure').length;
+      if (failedCount > 0) {
+        embed.setDescription(`-# ${failedCount} failed`);
+      }
+    }
+  }
+
   return embed;
 }
 
