@@ -58,18 +58,20 @@ function formatPeakRegionRank(row) {
 }
 
 /**
- * Players / Peak Rating / Peak Rank only — player-peaks doesn't return a
- * tier string like player_rank does, and inventing a rating-to-tier mapping
- * would risk showing a tier that's actually wrong, which is exactly what
- * was ruled out for this feature.
+ * Same title/color/footer/column style as buildLeaderboardEmbed in
+ * leaderboard.js — the only real difference is the values themselves
+ * (peak instead of current). One deliberate deviation: the Rank column has
+ * no tier text, since player-peaks doesn't return one like player_rank
+ * does, and inventing a rating-to-tier mapping would risk showing a tier
+ * that's actually wrong — exactly what was ruled out for this feature.
  */
 function buildSeasonHighEmbed(label, rows) {
   const sorted = sortSeasonHighRows(rows);
 
   const embed = new EmbedBuilder()
-    .setColor(0x9b59b6)
-    .setTitle(`🏆 ${label}`)
-    .setFooter({ text: `${sorted.length} player${sorted.length === 1 ? '' : 's'}` });
+    .setColor(0xf1c40f)
+    .setTitle(`🏆 Arena Leaderboard — ${label}`)
+    .setFooter({ text: `${sorted.length} player${sorted.length === 1 ? '' : 's'} with a recorded peak` });
 
   if (sorted.length === 0) {
     embed.setDescription('No one has a recorded peak for this season yet.');
@@ -77,13 +79,13 @@ function buildSeasonHighEmbed(label, rows) {
   }
 
   const nameLines = sorted.map((row, i) => `${formatServerPosition(i)} ${row.riotName}`);
-  const ratingLines = sorted.map((row) => `${row.payload.peak_rating ?? '?'}`);
   const rankLines = sorted.map((row) => formatPeakRegionRank(row));
+  const ratingLines = sorted.map((row) => `${row.payload.peak_rating ?? '?'}`);
 
   embed.addFields(
     { name: 'Players', value: nameLines.join('\n'), inline: true },
-    { name: 'Peak Rating', value: ratingLines.join('\n'), inline: true },
-    { name: 'Peak Rank', value: rankLines.join('\n'), inline: true },
+    { name: 'Rank', value: rankLines.join('\n'), inline: true },
+    { name: 'Rating', value: ratingLines.join('\n'), inline: true },
   );
 
   return embed;
