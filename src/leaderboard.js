@@ -13,10 +13,12 @@ const {
   setGuildInfoMessage,
 } = require('./db');
 const { getPlayerRank } = require('./arenaSweats');
+const { getSeasonPeak } = require('./seasonPeaks');
+const { refreshCurrentSeasonHigh } = require('./seasonHighs');
 const RANK_EMOJIS = require('./rankEmojis');
+const { formatServerPosition } = require('./format');
 
 const CHANNEL_NAME = 'arena-leaderboard';
-const MEDALS = ['🥇', '🥈', '🥉'];
 const REFRESH_BUTTON_ID = 'leaderboard_refresh';
 const VIEW_UPDATE_DATA_BUTTON_ID = 'leaderboard_view_update_data';
 const STATUS_EMOJI = { success: '✅', failure: '❌', pending: '⏳' };
@@ -107,16 +109,6 @@ function buildLeaderboardEmbed(rows) {
   );
 
   return embed;
-}
-
-/**
- * Medal for the top 3, otherwise "N." for the rest — the period is
- * backslash-escaped so Discord doesn't silently parse a row starting with
- * "4. Name" as Markdown ordered-list syntax (see README's Discord quirks
- * section), which would give that row different line spacing than the rest.
- */
-function formatServerPosition(index) {
-  return MEDALS[index] ?? `${index + 1}\\.`;
 }
 
 /**
@@ -531,7 +523,9 @@ async function refreshGuildLeaderboardLive(guild) {
     const rows = sortLeaderboardRows(getGuildLeaderboardRows(guild.id)).all;
 
     if (rows.length === 0) {
-      return refreshGuildLeaderboard(guild, resolved);
+      const mainWarning = await refreshGuildLeaderboard(guild, resolved);
+      const seasonWarning = await refreshCurrentSeasonHigh(guild);
+      return mainWarning ?? seasonWarning ?? null;
     }
 
     const statuses = new Map(rows.map((row) => [row.discordId, 'pending']));
@@ -548,6 +542,13 @@ async function refreshGuildLeaderboardLive(guild) {
         statuses.set(row.discordId, result._live ? 'success' : 'failure');
         payloads.set(row.discordId, result);
         if (result._live) successCount += 1;
+
+        // Reuses the hash this call already returned — no extra request to
+        // resolve it. Best-effort: a peak-fetch hiccup doesn't affect this
+        // player's main-leaderboard status either way.
+        if (result.player_hash) {
+          await getSeasonPeak(row.riotName, row.riotTag, row.region, 'live', result.player_hash).catch(() => {});
+        }
       } catch {
         statuses.set(row.discordId, 'failure');
       }
@@ -585,7 +586,9 @@ async function refreshGuildLeaderboardLive(guild) {
       })],
     }).catch(() => {});
 
-    return refreshGuildLeaderboard(guild, resolved);
+    const mainWarning = await refreshGuildLeaderboard(guild, resolved);
+    const seasonWarning = await refreshCurrentSeasonHigh(guild);
+    return mainWarning ?? seasonWarning ?? null;
   } finally {
     activeLiveRefreshes.delete(guild.id);
   }
