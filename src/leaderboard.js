@@ -18,6 +18,7 @@ const RANK_EMOJIS = require('./rankEmojis');
 const CHANNEL_NAME = 'arena-leaderboard';
 const MEDALS = ['🥇', '🥈', '🥉'];
 const REFRESH_BUTTON_ID = 'leaderboard_refresh';
+const VIEW_UPDATE_DATA_BUTTON_ID = 'leaderboard_view_update_data';
 const STATUS_EMOJI = { success: '✅', failure: '❌', pending: '⏳' };
 
 // Update button cooldown: a click re-fetches every registered player live,
@@ -26,11 +27,28 @@ const STATUS_EMOJI = { success: '✅', failure: '❌', pending: '⏳' };
 const LIVE_REFRESH_COOLDOWN_MS = 5 * 60 * 1000;
 const lastLiveRefreshAt = new Map();
 
+// Whether each guild currently has its update-log message expanded (full
+// per-player table) rather than the default collapsed one-liner — purely a
+// display preference, in-memory like the cooldown above, so it resets to
+// collapsed on restart.
+const updateLogExpanded = new Map();
+const autoCollapseTimers = new Map();
+const AUTO_COLLAPSE_MS = 30 * 1000;
+// Latest known rows/statuses/payloads for each guild's update-log message,
+// kept live throughout a run so a mid-update expand/collapse click can
+// redraw instantly instead of waiting for the run's own next edit.
+const updateLogRunState = new Map();
+
 const refreshRow = new ActionRowBuilder().addComponents(
   new ButtonBuilder()
     .setCustomId(REFRESH_BUTTON_ID)
     .setLabel('Update')
     .setEmoji('🔄')
+    .setStyle(ButtonStyle.Secondary),
+  new ButtonBuilder()
+    .setCustomId(VIEW_UPDATE_DATA_BUTTON_ID)
+    .setLabel('View Update Data')
+    .setEmoji('📊')
     .setStyle(ButtonStyle.Secondary),
 );
 
@@ -145,8 +163,22 @@ function formatDataAge(payload) {
  * started) — used for the per-player "how old is this data" text, which is
  * only shown once the run has finished; while it's in flight the number
  * would just be describing stale pre-run data, so it's hidden until then.
+ *
+ * `expanded` toggles between this full per-player table and a one-line
+ * summary (see buildCollapsedUpdateLogEmbed) — the message defaults to
+ * collapsed and is only expanded on demand via the View Update Data button,
+ * so most of the time this detail is tucked away.
  */
-function buildUpdateLogEmbed(rows, statuses, payloads, { finished = false, allFailed = false, completedAt } = {}) {
+function buildUpdateLogEmbed(rows, statuses, payloads, {
+  finished = false,
+  allFailed = false,
+  completedAt = null,
+  expanded = false,
+} = {}) {
+  if (!expanded) {
+    return buildCollapsedUpdateLogEmbed(rows, statuses, { finished, allFailed, completedAt });
+  }
+
   const embed = new EmbedBuilder()
     .setColor(0xf1c40f)
     .setTitle(finished ? '🔄 Leaderboard Update' : '🔄 Updating leaderboard…');
@@ -172,6 +204,34 @@ function buildUpdateLogEmbed(rows, statuses, payloads, { finished = false, allFa
     embed.addFields({ name: '​', value: statusLine.join('\n'), inline: false });
   }
 
+  return embed;
+}
+
+/**
+ * Resting-state view of the update log: while idle, a single "Updated X ago"
+ * line; while a run is in progress, a single line of the same tick/cross/
+ * hourglass emoji as the expanded table, in the same row order, so progress
+ * is still visible live without the full per-player breakdown.
+ */
+function buildCollapsedUpdateLogEmbed(rows, statuses, { finished, allFailed, completedAt }) {
+  const embed = new EmbedBuilder().setColor(0xf1c40f);
+
+  if (!finished) {
+    embed.setTitle('🔄 Updating leaderboard…');
+    const emojiLine = rows.map((row) => STATUS_EMOJI[statuses.get(row.discordId)] ?? STATUS_EMOJI.pending).join(' ');
+    embed.setDescription(emojiLine || '_No players registered yet._');
+    return embed;
+  }
+
+  embed.setTitle('🔄 Leaderboard Update');
+  if (!completedAt) {
+    embed.setDescription('-# No update recorded yet — press Update.');
+    return embed;
+  }
+
+  const label = allFailed ? 'Last attempted' : 'Updated';
+  const warning = allFailed ? ' — ⚠️ update failed' : '';
+  embed.setDescription(`-# ${label} <t:${Math.floor(new Date(completedAt).getTime() / 1000)}:R>${warning}`);
   return embed;
 }
 
@@ -284,7 +344,7 @@ async function ensureUpdateLogMessage(guild, channel, rows, statuses, payloads) 
     ? await channel.messages.fetch(meta.updateLogMessageId).catch(() => null)
     : null;
 
-  const embed = buildUpdateLogEmbed(rows, statuses, payloads);
+  const embed = buildUpdateLogEmbed(rows, statuses, payloads, { expanded: isUpdateLogExpanded(guild.id) });
 
   if (message) {
     await message.edit({ embeds: [embed] });
@@ -294,6 +354,77 @@ async function ensureUpdateLogMessage(guild, channel, rows, statuses, payloads) 
   }
 
   return message;
+}
+
+function isUpdateLogExpanded(guildId) {
+  return updateLogExpanded.get(guildId) ?? false;
+}
+
+/**
+ * Records the latest rows/statuses/payloads/finished state for a guild's
+ * update log as a run progresses, so a View Update Data click landing
+ * mid-run (or right after one finishes) can redraw instantly from the most
+ * recent known progress instead of waiting for the run's own next edit.
+ */
+function recordUpdateLogState(guildId, state) {
+  updateLogRunState.set(guildId, state);
+}
+
+/**
+ * Redraws a guild's update-log message using whatever progress is currently
+ * known for it, in its current expand/collapse state. Used both by the View
+ * Update Data toggle and by the 30-second auto-collapse timer it starts.
+ * No-op if the message can't be found (e.g. deleted) — it'll be recreated
+ * self-healingly next time a real update runs.
+ */
+async function redrawUpdateLogMessage(guild, channel, messageId) {
+  const message = await channel.messages.fetch(messageId).catch(() => null);
+  if (!message) return;
+
+  const state = updateLogRunState.get(guild.id)
+    ?? { rows: sortLeaderboardRows(getGuildLeaderboardRows(guild.id)).all, statuses: new Map(), payloads: new Map(), finished: true, allFailed: false, completedAt: null };
+
+  await message.edit({
+    embeds: [buildUpdateLogEmbed(state.rows, state.statuses, state.payloads, {
+      finished: state.finished,
+      allFailed: state.allFailed,
+      completedAt: state.completedAt,
+      expanded: isUpdateLogExpanded(guild.id),
+    })],
+  }).catch(() => {});
+}
+
+/**
+ * Handles a View Update Data click: flips the guild's update-log message
+ * between its collapsed one-liner and the full per-player table, and — when
+ * expanding — starts a 30-second timer that auto-collapses it again. Works
+ * mid-update too, since it just re-renders whatever progress is currently
+ * recorded via recordUpdateLogState. A no-op if no update has ever run for
+ * this guild, since there's nothing to reveal yet.
+ */
+async function toggleUpdateLogVisibility(guild) {
+  const meta = getGuildLeaderboardMeta(guild.id);
+  if (!meta?.updateLogMessageId) return;
+
+  const channel = guild.channels.cache.get(meta.channelId)
+    ?? (await guild.channels.fetch(meta.channelId).catch(() => null));
+  if (!channel) return;
+
+  clearTimeout(autoCollapseTimers.get(guild.id));
+  autoCollapseTimers.delete(guild.id);
+
+  const expanded = !isUpdateLogExpanded(guild.id);
+  updateLogExpanded.set(guild.id, expanded);
+
+  await redrawUpdateLogMessage(guild, channel, meta.updateLogMessageId);
+
+  if (expanded) {
+    const timer = setTimeout(() => {
+      updateLogExpanded.set(guild.id, false);
+      redrawUpdateLogMessage(guild, channel, meta.updateLogMessageId).catch(() => {});
+    }, AUTO_COLLAPSE_MS);
+    autoCollapseTimers.set(guild.id, timer);
+  }
 }
 
 /**
@@ -336,6 +467,7 @@ async function refreshGuildLeaderboardLive(guild) {
 
   const statuses = new Map(rows.map((row) => [row.discordId, 'pending']));
   const payloads = new Map(rows.map((row) => [row.discordId, row.payload]));
+  recordUpdateLogState(guild.id, { rows, statuses, payloads, finished: false, allFailed: false, completedAt: null });
   const logMessage = await ensureUpdateLogMessage(guild, channel, rows, statuses, payloads);
 
   let successCount = 0;
@@ -348,7 +480,10 @@ async function refreshGuildLeaderboardLive(guild) {
     } catch {
       statuses.set(row.discordId, 'failure');
     }
-    await logMessage.edit({ embeds: [buildUpdateLogEmbed(rows, statuses, payloads)] }).catch(() => {});
+    recordUpdateLogState(guild.id, { rows, statuses, payloads, finished: false, allFailed: false, completedAt: null });
+    await logMessage.edit({
+      embeds: [buildUpdateLogEmbed(rows, statuses, payloads, { expanded: isUpdateLogExpanded(guild.id) })],
+    }).catch(() => {});
   }
 
   const allFailed = successCount === 0;
@@ -359,11 +494,14 @@ async function refreshGuildLeaderboardLive(guild) {
   const finalRows = sortLeaderboardRows(
     rows.map((row) => ({ ...row, payload: payloads.get(row.discordId) })),
   ).all;
+  const completedAt = new Date().toISOString();
+  recordUpdateLogState(guild.id, { rows: finalRows, statuses, payloads, finished: true, allFailed, completedAt });
   await logMessage.edit({
     embeds: [buildUpdateLogEmbed(finalRows, statuses, payloads, {
       finished: true,
       allFailed,
-      completedAt: new Date().toISOString(),
+      completedAt,
+      expanded: isUpdateLogExpanded(guild.id),
     })],
   }).catch(() => {});
 
@@ -374,5 +512,7 @@ module.exports = {
   refreshGuildLeaderboard,
   refreshGuildLeaderboardLive,
   getLiveRefreshCooldownRemainingMs,
+  toggleUpdateLogVisibility,
   REFRESH_BUTTON_ID,
+  VIEW_UPDATE_DATA_BUTTON_ID,
 };

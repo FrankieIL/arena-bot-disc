@@ -5,7 +5,9 @@ const setign = require('./commands/setign');
 const {
   refreshGuildLeaderboardLive,
   getLiveRefreshCooldownRemainingMs,
+  toggleUpdateLogVisibility,
   REFRESH_BUTTON_ID,
+  VIEW_UPDATE_DATA_BUTTON_ID,
 } = require('./leaderboard');
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
@@ -87,6 +89,16 @@ client.on('interactionCreate', async (interaction) => {
       }
     } catch (err) {
       console.error('Error handling leaderboard refresh button:', err);
+    }
+    return;
+  }
+
+  if (interaction.isButton() && interaction.customId === VIEW_UPDATE_DATA_BUTTON_ID) {
+    try {
+      await interaction.deferUpdate();
+      await toggleUpdateLogVisibility(interaction.guild);
+    } catch (err) {
+      console.error('Error handling view-update-data button:', err);
     }
   }
 });
