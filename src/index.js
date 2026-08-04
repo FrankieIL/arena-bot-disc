@@ -5,7 +5,8 @@ const setign = require('./commands/setign');
 const {
   refreshGuildLeaderboardLive,
   getLiveRefreshCooldownRemainingMs,
-  toggleUpdateLogVisibility,
+  expandUpdateLog,
+  getUpdateLogCollapseRemainingMs,
   REFRESH_BUTTON_ID,
   VIEW_UPDATE_DATA_BUTTON_ID,
 } = require('./leaderboard');
@@ -95,14 +96,18 @@ client.on('interactionCreate', async (interaction) => {
 
   if (interaction.isButton() && interaction.customId === VIEW_UPDATE_DATA_BUTTON_ID) {
     try {
-      const buttons = await toggleUpdateLogVisibility(interaction.guild);
-      // Acknowledges the click and updates its own button label in one
-      // call, instead of deferring and editing separately.
-      if (buttons) {
-        await interaction.update({ components: [buttons] });
-      } else {
-        await interaction.deferUpdate();
+      const cooldownMs = getUpdateLogCollapseRemainingMs(interaction.guildId);
+      if (cooldownMs > 0) {
+        const seconds = Math.ceil(cooldownMs / 1000);
+        await interaction.reply({
+          content: `⏳ Update data is already showing — it'll collapse again in ${seconds}s.`,
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
       }
+
+      await interaction.deferUpdate();
+      await expandUpdateLog(interaction.guild);
     } catch (err) {
       console.error('Error handling view-update-data button:', err);
     }

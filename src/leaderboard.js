@@ -30,35 +30,29 @@ const lastLiveRefreshAt = new Map();
 // Whether each guild currently has its update-log message expanded (full
 // per-player table) rather than the default collapsed one-liner — purely a
 // display preference, in-memory like the cooldown above, so it resets to
-// collapsed on restart.
+// collapsed on restart. View Update Data expands it for AUTO_COLLAPSE_MS and
+// then it reverts on its own; updateLogExpandedUntil backs the cooldown a
+// second click is rejected with while that window is still open.
 const updateLogExpanded = new Map();
-const autoCollapseTimers = new Map();
+const updateLogExpandedUntil = new Map();
 const AUTO_COLLAPSE_MS = 30 * 1000;
 // Latest known rows/statuses/payloads for each guild's update-log message,
-// kept live throughout a run so a mid-update expand/collapse click can
+// kept live throughout a run so an expand click landing mid-update can
 // redraw instantly instead of waiting for the run's own next edit.
 const updateLogRunState = new Map();
 
-/**
- * The View Update Data button's label flips to "Hide Update Data" while
- * that message is expanded, so it reads as a toggle rather than a one-way
- * action — built fresh per guild/render rather than as a static row since
- * the label depends on that guild's current expand state.
- */
-function buildLeaderboardButtons(guildId) {
-  return new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(REFRESH_BUTTON_ID)
-      .setLabel('Update')
-      .setEmoji('🔄')
-      .setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId(VIEW_UPDATE_DATA_BUTTON_ID)
-      .setLabel(isUpdateLogExpanded(guildId) ? 'Hide Update Data' : 'View Update Data')
-      .setEmoji('📊')
-      .setStyle(ButtonStyle.Secondary),
-  );
-}
+const refreshRow = new ActionRowBuilder().addComponents(
+  new ButtonBuilder()
+    .setCustomId(REFRESH_BUTTON_ID)
+    .setLabel('Update')
+    .setEmoji('🔄')
+    .setStyle(ButtonStyle.Secondary),
+  new ButtonBuilder()
+    .setCustomId(VIEW_UPDATE_DATA_BUTTON_ID)
+    .setLabel('View Update Data')
+    .setEmoji('📊')
+    .setStyle(ButtonStyle.Secondary),
+);
 
 /**
  * The single ranking rule used everywhere a player list is shown — ranked
@@ -307,7 +301,7 @@ async function ensureLeaderboardChannel(guild) {
 async function drawLeaderboardMessage(guild, channel, messageId) {
   const rows = getGuildLeaderboardRows(guild.id);
   const embed = buildLeaderboardEmbed(rows);
-  const components = [buildLeaderboardButtons(guild.id)];
+  const components = [refreshRow];
 
   const message = messageId
     ? await channel.messages.fetch(messageId).catch(() => null)
@@ -402,58 +396,45 @@ async function redrawUpdateLogMessage(guild, channel, messageId) {
 }
 
 /**
- * Re-renders just the leaderboard message's button row (embed untouched) so
- * its View/Hide Update Data label stays in sync with the update log's
- * current expand state. Only used by the auto-collapse timer — the toggle
- * click itself updates this same button row for free via interaction.update.
+ * Milliseconds left before a currently-expanded update log auto-collapses,
+ * or 0 if it's not expanded — callers should check this before calling
+ * expandUpdateLog and reject the click with a cooldown-style message if
+ * it's non-zero, same as the Update button's own cooldown.
  */
-async function redrawLeaderboardButtons(guild, channel, messageId) {
-  if (!messageId) return;
-  await channel.messages.edit(messageId, { components: [buildLeaderboardButtons(guild.id)] }).catch(() => {});
+function getUpdateLogCollapseRemainingMs(guildId) {
+  const until = updateLogExpandedUntil.get(guildId);
+  if (!until) return 0;
+  return Math.max(0, until - Date.now());
 }
 
 /**
- * Handles a View Update Data click: flips the guild's update-log message
- * between its collapsed one-liner and the full per-player table, and — when
- * expanding — starts a 30-second timer that auto-collapses it (and reverts
- * the button label) again. Works mid-update too, since it just re-renders
- * whatever progress is currently recorded via recordUpdateLogState. Returns
- * the updated button row for the caller to apply to the clicked message via
- * interaction.update, or null if no update has ever run for this guild
- * (nothing to reveal yet).
+ * Handles a View Update Data click: expands the guild's update-log message
+ * from its collapsed one-liner into the full per-player table for
+ * AUTO_COLLAPSE_MS, then reverts it on its own — a one-shot reveal, not a
+ * toggle, since a second click while it's already expanded is rejected by
+ * the cooldown check above rather than handled here. Works mid-update too,
+ * since it just re-renders whatever progress is currently recorded via
+ * recordUpdateLogState. A no-op if no update has ever run for this guild,
+ * since there's nothing to reveal yet.
  */
-async function toggleUpdateLogVisibility(guild) {
+async function expandUpdateLog(guild) {
   const meta = getGuildLeaderboardMeta(guild.id);
-  if (!meta?.updateLogMessageId) return null;
+  if (!meta?.updateLogMessageId) return;
 
   const channel = guild.channels.cache.get(meta.channelId)
     ?? (await guild.channels.fetch(meta.channelId).catch(() => null));
-  if (!channel) return null;
+  if (!channel) return;
 
-  clearTimeout(autoCollapseTimers.get(guild.id));
-  autoCollapseTimers.delete(guild.id);
+  updateLogExpanded.set(guild.id, true);
+  updateLogExpandedUntil.set(guild.id, Date.now() + AUTO_COLLAPSE_MS);
 
-  const expanded = !isUpdateLogExpanded(guild.id);
-  updateLogExpanded.set(guild.id, expanded);
+  await redrawUpdateLogMessage(guild, channel, meta.updateLogMessageId);
 
-  // Not awaited: the caller acknowledges the click by editing this
-  // message's own button row via the returned row below, and Discord only
-  // gives it 3 seconds to do that — this edit targets a different message,
-  // so it runs in the background instead of risking that deadline.
-  redrawUpdateLogMessage(guild, channel, meta.updateLogMessageId).catch(() => {});
-
-  if (expanded) {
-    const timer = setTimeout(() => {
-      updateLogExpanded.set(guild.id, false);
-      Promise.all([
-        redrawUpdateLogMessage(guild, channel, meta.updateLogMessageId),
-        redrawLeaderboardButtons(guild, channel, meta.messageId),
-      ]).catch(() => {});
-    }, AUTO_COLLAPSE_MS);
-    autoCollapseTimers.set(guild.id, timer);
-  }
-
-  return buildLeaderboardButtons(guild.id);
+  setTimeout(() => {
+    updateLogExpanded.set(guild.id, false);
+    updateLogExpandedUntil.delete(guild.id);
+    redrawUpdateLogMessage(guild, channel, meta.updateLogMessageId).catch(() => {});
+  }, AUTO_COLLAPSE_MS);
 }
 
 /**
@@ -541,7 +522,8 @@ module.exports = {
   refreshGuildLeaderboard,
   refreshGuildLeaderboardLive,
   getLiveRefreshCooldownRemainingMs,
-  toggleUpdateLogVisibility,
+  expandUpdateLog,
+  getUpdateLogCollapseRemainingMs,
   REFRESH_BUTTON_ID,
   VIEW_UPDATE_DATA_BUTTON_ID,
 };
