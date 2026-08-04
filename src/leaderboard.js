@@ -181,7 +181,7 @@ function buildUpdateLogEmbed(rows, statuses, payloads, {
 
   const embed = new EmbedBuilder()
     .setColor(0xf1c40f)
-    .setTitle(finished ? '🔄 Leaderboard Update' : '🔄 Updating leaderboard…');
+    .setTitle(finished ? updateStatusTitle({ allFailed, completedAt }) : '🔄 Updating leaderboard…');
 
   const nameLines = rows.map((row) => row.riotName);
   const statusLines = rows.map((row) => {
@@ -195,23 +195,30 @@ function buildUpdateLogEmbed(rows, statuses, payloads, {
     { name: 'Status', value: statusLines.join('\n'), inline: true },
   );
 
-  if (finished) {
-    const label = allFailed ? 'Last attempted' : 'Updated';
-    const statusLine = [`-# ${label} <t:${Math.floor(new Date(completedAt).getTime() / 1000)}:R>`];
-    if (allFailed) {
-      statusLine.push('-# ⚠️ Update failed — maybe Arena Sweats is down?');
-    }
-    embed.addFields({ name: '​', value: statusLine.join('\n'), inline: false });
+  if (finished && allFailed) {
+    embed.addFields({ name: '​', value: '-# ⚠️ Update failed — maybe Arena Sweats is down?', inline: false });
   }
 
   return embed;
 }
 
 /**
- * Resting-state view of the update log: while idle, a single "Updated X ago"
- * line; while a run is in progress, a single line of the same tick/cross/
- * hourglass emoji as the expanded table, in the same row order, so progress
- * is still visible live without the full per-player breakdown.
+ * "Updated X ago" / "Last attempted X ago" — the title for a finished run,
+ * in both the collapsed and expanded embeds, so the data's freshness is the
+ * headline rather than a generic "Leaderboard Update" label.
+ */
+function updateStatusTitle({ allFailed, completedAt }) {
+  if (!completedAt) return '🔄 No update recorded yet — press Update';
+  const label = allFailed ? 'Last attempted' : 'Updated';
+  const warning = allFailed ? ' ⚠️' : '';
+  return `🔄 ${label} <t:${Math.floor(new Date(completedAt).getTime() / 1000)}:R>${warning}`;
+}
+
+/**
+ * Resting-state view of the update log: while idle, a single title line
+ * ("Updated X ago"); while a run is in progress, a single line of the same
+ * tick/cross/hourglass emoji as the expanded table, in the same row order,
+ * so progress is still visible live without the full per-player breakdown.
  */
 function buildCollapsedUpdateLogEmbed(rows, statuses, { finished, allFailed, completedAt }) {
   const embed = new EmbedBuilder().setColor(0xf1c40f);
@@ -223,15 +230,7 @@ function buildCollapsedUpdateLogEmbed(rows, statuses, { finished, allFailed, com
     return embed;
   }
 
-  embed.setTitle('🔄 Leaderboard Update');
-  if (!completedAt) {
-    embed.setDescription('-# No update recorded yet — press Update.');
-    return embed;
-  }
-
-  const label = allFailed ? 'Last attempted' : 'Updated';
-  const warning = allFailed ? ' — ⚠️ update failed' : '';
-  embed.setDescription(`-# ${label} <t:${Math.floor(new Date(completedAt).getTime() / 1000)}:R>${warning}`);
+  embed.setTitle(updateStatusTitle({ allFailed, completedAt }));
   return embed;
 }
 
