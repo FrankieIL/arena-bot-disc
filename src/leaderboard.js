@@ -495,6 +495,15 @@ async function sweepStrayMessages(channel) {
   await channel.bulkDelete(stray, true).catch(() => {});
 }
 
+// Guards against two refreshGuildLeaderboardLive runs overlapping for the
+// same guild — e.g. a double-click racing past the cooldown check while the
+// first click's deferUpdate is still resolving, or the hourly auto-update
+// (which doesn't check the cooldown at all) landing mid-click. Without this,
+// two independent loops both edit the same update-log message with their
+// own separate progress state, and whichever one's edit lands last wins —
+// visibly flickering between finished and in-progress.
+const activeLiveRefreshes = new Set();
+
 /**
  * Re-fetches every registered player's rank live, updating a dedicated
  * progress message (created/edited in place, same channel as the
@@ -504,73 +513,82 @@ async function sweepStrayMessages(channel) {
  * doesn't stop the rest; the log message shows exactly which ones did.
  */
 async function refreshGuildLeaderboardLive(guild) {
-  const startedAt = Date.now();
-  lastLiveRefreshAt.set(guild.id, startedAt);
-
-  const resolved = await ensureLeaderboardChannel(guild);
-  const { channel } = resolved;
-  await sweepStrayMessages(channel);
-  // Fixed for the whole run — the same order the leaderboard itself uses,
-  // computed once up front so rows don't jump around mid-update as fresher
-  // data comes in.
-  const rows = sortLeaderboardRows(getGuildLeaderboardRows(guild.id)).all;
-
-  if (rows.length === 0) {
-    return refreshGuildLeaderboard(guild, resolved);
+  if (activeLiveRefreshes.has(guild.id)) {
+    return 'An update is already in progress for this server — hang tight.';
   }
+  activeLiveRefreshes.add(guild.id);
 
-  const statuses = new Map(rows.map((row) => [row.discordId, 'pending']));
-  const payloads = new Map(rows.map((row) => [row.discordId, row.payload]));
-  recordUpdateLogState(guild.id, {
-    rows, statuses, payloads, finished: false, allFailed: false, completedAt: null, durationMs: null,
-  });
-  const logMessage = await ensureUpdateLogMessage(guild, channel, rows, statuses, payloads);
+  try {
+    const startedAt = Date.now();
+    lastLiveRefreshAt.set(guild.id, startedAt);
 
-  let successCount = 0;
-  for (const row of rows) {
-    try {
-      const result = await getPlayerRank(row.riotName, row.riotTag, row.region);
-      statuses.set(row.discordId, result._live ? 'success' : 'failure');
-      payloads.set(row.discordId, result);
-      if (result._live) successCount += 1;
-    } catch {
-      statuses.set(row.discordId, 'failure');
+    const resolved = await ensureLeaderboardChannel(guild);
+    const { channel } = resolved;
+    await sweepStrayMessages(channel);
+    // Fixed for the whole run — the same order the leaderboard itself uses,
+    // computed once up front so rows don't jump around mid-update as fresher
+    // data comes in.
+    const rows = sortLeaderboardRows(getGuildLeaderboardRows(guild.id)).all;
+
+    if (rows.length === 0) {
+      return refreshGuildLeaderboard(guild, resolved);
     }
+
+    const statuses = new Map(rows.map((row) => [row.discordId, 'pending']));
+    const payloads = new Map(rows.map((row) => [row.discordId, row.payload]));
     recordUpdateLogState(guild.id, {
       rows, statuses, payloads, finished: false, allFailed: false, completedAt: null, durationMs: null,
     });
+    const logMessage = await ensureUpdateLogMessage(guild, channel, rows, statuses, payloads);
+
+    let successCount = 0;
+    for (const row of rows) {
+      try {
+        const result = await getPlayerRank(row.riotName, row.riotTag, row.region);
+        statuses.set(row.discordId, result._live ? 'success' : 'failure');
+        payloads.set(row.discordId, result);
+        if (result._live) successCount += 1;
+      } catch {
+        statuses.set(row.discordId, 'failure');
+      }
+      recordUpdateLogState(guild.id, {
+        rows, statuses, payloads, finished: false, allFailed: false, completedAt: null, durationMs: null,
+      });
+      await logMessage.edit({
+        embeds: [buildUpdateLogEmbed(rows, statuses, payloads, { expanded: isUpdateLogExpanded(guild.id) })],
+      }).catch(() => {});
+    }
+
+    const allFailed = successCount === 0;
+    // Re-sort using this run's fresh payloads for the final render, so the
+    // finished state matches the order refreshGuildLeaderboard is about to
+    // draw the Arena Leaderboard in below — the fixed pre-run order above is
+    // only for the in-progress edits, where rows shouldn't jump around.
+    const finalRows = sortLeaderboardRows(
+      rows.map((row) => ({ ...row, payload: payloads.get(row.discordId) })),
+    ).all;
+    const completedAt = new Date().toISOString();
+    const durationMs = Date.now() - startedAt;
+    // Re-stamped here (it was already set at the top, to block a second click
+    // from starting an overlapping run while this one was still fetching) so
+    // the cooldown actually counts down from when the update finished, not
+    // from when it started.
+    lastLiveRefreshAt.set(guild.id, Date.now());
+    recordUpdateLogState(guild.id, { rows: finalRows, statuses, payloads, finished: true, allFailed, completedAt, durationMs });
     await logMessage.edit({
-      embeds: [buildUpdateLogEmbed(rows, statuses, payloads, { expanded: isUpdateLogExpanded(guild.id) })],
+      embeds: [buildUpdateLogEmbed(finalRows, statuses, payloads, {
+        finished: true,
+        allFailed,
+        completedAt,
+        durationMs,
+        expanded: isUpdateLogExpanded(guild.id),
+      })],
     }).catch(() => {});
+
+    return refreshGuildLeaderboard(guild, resolved);
+  } finally {
+    activeLiveRefreshes.delete(guild.id);
   }
-
-  const allFailed = successCount === 0;
-  // Re-sort using this run's fresh payloads for the final render, so the
-  // finished state matches the order refreshGuildLeaderboard is about to
-  // draw the Arena Leaderboard in below — the fixed pre-run order above is
-  // only for the in-progress edits, where rows shouldn't jump around.
-  const finalRows = sortLeaderboardRows(
-    rows.map((row) => ({ ...row, payload: payloads.get(row.discordId) })),
-  ).all;
-  const completedAt = new Date().toISOString();
-  const durationMs = Date.now() - startedAt;
-  // Re-stamped here (it was already set at the top, to block a second click
-  // from starting an overlapping run while this one was still fetching) so
-  // the cooldown actually counts down from when the update finished, not
-  // from when it started.
-  lastLiveRefreshAt.set(guild.id, Date.now());
-  recordUpdateLogState(guild.id, { rows: finalRows, statuses, payloads, finished: true, allFailed, completedAt, durationMs });
-  await logMessage.edit({
-    embeds: [buildUpdateLogEmbed(finalRows, statuses, payloads, {
-      finished: true,
-      allFailed,
-      completedAt,
-      durationMs,
-      expanded: isUpdateLogExpanded(guild.id),
-    })],
-  }).catch(() => {});
-
-  return refreshGuildLeaderboard(guild, resolved);
 }
 
 module.exports = {
