@@ -39,18 +39,26 @@ const AUTO_COLLAPSE_MS = 30 * 1000;
 // redraw instantly instead of waiting for the run's own next edit.
 const updateLogRunState = new Map();
 
-const refreshRow = new ActionRowBuilder().addComponents(
-  new ButtonBuilder()
-    .setCustomId(REFRESH_BUTTON_ID)
-    .setLabel('Update')
-    .setEmoji('🔄')
-    .setStyle(ButtonStyle.Secondary),
-  new ButtonBuilder()
-    .setCustomId(VIEW_UPDATE_DATA_BUTTON_ID)
-    .setLabel('View Update Data')
-    .setEmoji('📊')
-    .setStyle(ButtonStyle.Secondary),
-);
+/**
+ * The View Update Data button's label flips to "Hide Update Data" while
+ * that message is expanded, so it reads as a toggle rather than a one-way
+ * action — built fresh per guild/render rather than as a static row since
+ * the label depends on that guild's current expand state.
+ */
+function buildLeaderboardButtons(guildId) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(REFRESH_BUTTON_ID)
+      .setLabel('Update')
+      .setEmoji('🔄')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(VIEW_UPDATE_DATA_BUTTON_ID)
+      .setLabel(isUpdateLogExpanded(guildId) ? 'Hide Update Data' : 'View Update Data')
+      .setEmoji('📊')
+      .setStyle(ButtonStyle.Secondary),
+  );
+}
 
 /**
  * The single ranking rule used everywhere a player list is shown — ranked
@@ -299,15 +307,16 @@ async function ensureLeaderboardChannel(guild) {
 async function drawLeaderboardMessage(guild, channel, messageId) {
   const rows = getGuildLeaderboardRows(guild.id);
   const embed = buildLeaderboardEmbed(rows);
+  const components = [buildLeaderboardButtons(guild.id)];
 
   const message = messageId
     ? await channel.messages.fetch(messageId).catch(() => null)
     : null;
 
   if (message) {
-    await message.edit({ embeds: [embed], components: [refreshRow] });
+    await message.edit({ embeds: [embed], components });
   } else {
-    const sent = await channel.send({ embeds: [embed], components: [refreshRow] });
+    const sent = await channel.send({ embeds: [embed], components });
     setGuildLeaderboardMeta(guild.id, channel.id, sent.id);
   }
 }
@@ -394,9 +403,23 @@ async function redrawUpdateLogMessage(guild, channel, messageId) {
 }
 
 /**
+ * Re-renders just the leaderboard message's button row (embed untouched) so
+ * its View/Hide Update Data label stays in sync with the update log's
+ * current expand state whenever that state changes outside of a normal
+ * leaderboard redraw.
+ */
+async function redrawLeaderboardButtons(guild, channel, messageId) {
+  if (!messageId) return;
+  const message = await channel.messages.fetch(messageId).catch(() => null);
+  if (!message) return;
+  await message.edit({ components: [buildLeaderboardButtons(guild.id)] }).catch(() => {});
+}
+
+/**
  * Handles a View Update Data click: flips the guild's update-log message
- * between its collapsed one-liner and the full per-player table, and — when
- * expanding — starts a 30-second timer that auto-collapses it again. Works
+ * between its collapsed one-liner and the full per-player table, updates
+ * the button's label to match, and — when expanding — starts a 30-second
+ * timer that auto-collapses it (and reverts the label) again. Works
  * mid-update too, since it just re-renders whatever progress is currently
  * recorded via recordUpdateLogState. A no-op if no update has ever run for
  * this guild, since there's nothing to reveal yet.
@@ -415,12 +438,18 @@ async function toggleUpdateLogVisibility(guild) {
   const expanded = !isUpdateLogExpanded(guild.id);
   updateLogExpanded.set(guild.id, expanded);
 
-  await redrawUpdateLogMessage(guild, channel, meta.updateLogMessageId);
+  await Promise.all([
+    redrawUpdateLogMessage(guild, channel, meta.updateLogMessageId),
+    redrawLeaderboardButtons(guild, channel, meta.messageId),
+  ]);
 
   if (expanded) {
     const timer = setTimeout(() => {
       updateLogExpanded.set(guild.id, false);
-      redrawUpdateLogMessage(guild, channel, meta.updateLogMessageId).catch(() => {});
+      Promise.all([
+        redrawUpdateLogMessage(guild, channel, meta.updateLogMessageId),
+        redrawLeaderboardButtons(guild, channel, meta.messageId),
+      ]).catch(() => {});
     }, AUTO_COLLAPSE_MS);
     autoCollapseTimers.set(guild.id, timer);
   }
