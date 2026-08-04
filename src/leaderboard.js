@@ -554,6 +554,11 @@ async function refreshGuildLeaderboardLive(guild) {
   ).all;
   const completedAt = new Date().toISOString();
   const durationMs = Date.now() - startedAt;
+  // Re-stamped here (it was already set at the top, to block a second click
+  // from starting an overlapping run while this one was still fetching) so
+  // the cooldown actually counts down from when the update finished, not
+  // from when it started.
+  lastLiveRefreshAt.set(guild.id, Date.now());
   recordUpdateLogState(guild.id, { rows: finalRows, statuses, payloads, finished: true, allFailed, completedAt, durationMs });
   await logMessage.edit({
     embeds: [buildUpdateLogEmbed(finalRows, statuses, payloads, {
