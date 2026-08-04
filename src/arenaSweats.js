@@ -94,7 +94,4 @@ module.exports = {
   getPlayerRank,
   PlayerNotFoundError,
   ArenaSweatsUnavailableError,
-  enqueue,
-  fetchJson,
-  BASE_URL,
 };

@@ -11,8 +11,7 @@ Built for a friend group's private server; the invite link below is genuinely ru
 - **`/setign riot_id region`** links a Riot ID to a Discord account.
 - A **`#arena-leaderboard`** channel is created automatically, ranking everyone registered in that server by rating, medals for the top 3, and each player's tier shown with its own icon (uploaded once as free application emojis — see Setup).
 - An **Update** button on the leaderboard live-refreshes every registered player at once, with a running ✅ / ❌ / ⏳ progress display (plus how stale each player's underlying data actually is) so a single failed lookup is visible without derailing the rest. The same refresh also runs automatically every hour, on the hour.
-- A separate **`#arena-season-highs`** channel tracks each player's *peak* rank/rating for every Arena season Arena Sweats supports true peak-tracking for — one leaderboard per season, plus a current-season one that updates alongside the hourly/manual refresh above. New registrants (and anyone already registered before this channel existed) are backfilled automatically.
-- All of it is **self-healing** — delete a leaderboard message, the progress message, or a whole channel, and the next interaction quietly rebuilds whatever's missing.
+- All of it is **self-healing** — delete the leaderboard message, the progress message, or the whole channel, and the next interaction quietly rebuilds whatever's missing.
 
 ## Why this is a bit more interesting than "wraps an API"
 
@@ -22,7 +21,6 @@ arenasweats.lol has no public API — it's a hobbyist's site with no rate-limit 
 - **A single serialized request queue.** Every outbound call funnels through one `enqueue()` chain with a fixed delay between requests, so the bot can never fire concurrent requests at someone else's small side project, no matter how many Discord users trigger lookups at once.
 - **Cache as a fallback, not a shortcut.** Every player lookup always hits the live API — SQLite only stores the *most recent successful* response per player, used solely to keep the leaderboard showing a reasonable last-known value if arenasweats.lol is down. A genuine "player not found" is never masked by stale cached data; only actual unavailability triggers the fallback.
 - **Distributed state that recovers from deletion.** The leaderboard, its update-progress log, and the channel itself are each tracked by ID in SQLite and re-created independently the next time they're needed — the bot never assumes Discord state matches its own records.
-- **No approximated data.** Season identifiers (`live`, `2026-split-2`, ...) and the peak-rank endpoint were found the same way — reading Arena Sweats' own frontend bundle and hitting the API directly, not guessing. True peak tracking (`/api/player-peaks`) only exists for `live` and `2026`-era seasons; older seasons are deliberately left out of `#arena-season-highs` rather than shown with a season-end rank standing in for "peak," which wouldn't actually be correct.
 - **Designed around real Discord API constraints**, discovered the hard way while iterating on the layout:
   - Embed "inline" fields only ever render in a fixed 3-column grid — a 4th wraps to a new row instead of forming a real column.
   - A leaderboard row starting with `4. Name` gets silently parsed as Markdown's ordered-list syntax, giving that row different line spacing than everything else in the same field.
@@ -106,13 +104,6 @@ Each message is self-healing independently — if any of them (or the whole chan
 
 The channel is created with default (not locked-down) permissions — anyone can technically post there — but the bot actively deletes any message in that channel that isn't its own (with a self-deleting notice to whoever posted it), and the Update button also sweeps recent channel history as a backstop for anything that slips through.
 
-**`#arena-season-highs`**
-Created automatically the first time it's needed — either the next `/setign` after this feature is added, or the next hourly/manual leaderboard refresh, whichever comes first. On its very first creation, every already-registered member is backfilled across every supported season, so no one who registered before this channel existed is silently missing.
-
-One message per season (`src/seasonPeaks.js`'s `SUPPORTED_SEASONS` — currently Current Season, 2026 Season 2 Patch 1, 2026 Season 2, and 2026 Season 1), each listing everyone with a recorded peak for that season, sorted by peak rating, with Peak Rating and Peak Region Rank columns (no tier text — Arena Sweats' peak endpoint doesn't return one, and guessing a tier from the rating alone risks showing an actually-wrong tier). A player with no record in a given season simply doesn't appear in that season's message.
-
-Only the current-season message updates routinely, alongside the main leaderboard's own hourly/manual refresh — past seasons are final once recorded and are only touched again by a backfill. `SUPPORTED_SEASONS` is a manually maintained list, same as Arena Sweats' own season dropdown (there's no API to enumerate seasons) — it needs a one-line addition whenever they ship a new split or patch.
-
 ## Deploying to Railway (24/7 hosting)
 
 The bot is a stateful, always-on process (it holds a persistent Discord gateway connection and reads/writes a local SQLite file), so it needs a platform that keeps a container running continuously and gives it durable disk — a serverless/on-demand platform won't work.
@@ -143,10 +134,7 @@ src/
 ├── config.js              # env loading and constants
 ├── db.js                  # SQLite schema + queries (node:sqlite)
 ├── arenaSweats.js         # arenasweats.lol API client, caching, request queue
-├── seasonPeaks.js         # arenasweats.lol peak-rank API client, per-season caching
 ├── leaderboard.js         # per-guild #arena-leaderboard channel management
-├── seasonHighs.js         # per-guild #arena-season-highs channel management
-├── format.js              # small formatting helpers shared by the two channels above
 ├── rankEmojis.js          # generated by upload-rank-emojis.js — tier -> emoji mention
 └── commands/
     └── setign.js

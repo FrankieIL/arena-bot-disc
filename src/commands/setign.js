@@ -3,8 +3,6 @@ const { REGIONS } = require('../config');
 const { upsertPlayer, addGuildLeaderboardMember } = require('../db');
 const { getPlayerRank } = require('../arenaSweats');
 const { refreshGuildLeaderboard } = require('../leaderboard');
-const { backfillPlayerSeasonPeaks } = require('../seasonPeaks');
-const { refreshGuildSeasonHighs } = require('../seasonHighs');
 
 const data = new SlashCommandBuilder()
   .setName('setign')
@@ -65,14 +63,6 @@ async function execute(interaction) {
     const warning = await refreshGuildLeaderboard(interaction.guild);
     if (warning) {
       embed.addFields({ name: 'Leaderboard', value: warning });
-    }
-
-    // Best-effort: seeds this player's peak across every supported season
-    // so #arena-season-highs isn't missing them until the next update.
-    await backfillPlayerSeasonPeaks(riotName, riotTag, region).catch(() => {});
-    const seasonWarning = await refreshGuildSeasonHighs(interaction.guild);
-    if (seasonWarning) {
-      embed.addFields({ name: 'Season Highs', value: seasonWarning });
     }
   }
 

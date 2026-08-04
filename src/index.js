@@ -1,6 +1,6 @@
 const { Client, GatewayIntentBits, Collection, MessageFlags } = require('discord.js');
 const { DISCORD_TOKEN } = require('./config');
-const { getGuildLeaderboardMeta, getGuildSeasonHighsChannelId } = require('./db');
+const { getGuildLeaderboardMeta } = require('./db');
 const setign = require('./commands/setign');
 const {
   refreshGuildLeaderboardLive,
@@ -113,9 +113,7 @@ client.on('messageCreate', async (message) => {
   if (!message.guild || message.author.id === client.user.id) return;
 
   const meta = getGuildLeaderboardMeta(message.guild.id);
-  const seasonHighsChannelId = getGuildSeasonHighsChannelId(message.guild.id);
-  const isManagedChannel = message.channel.id === meta?.channelId || message.channel.id === seasonHighsChannelId;
-  if (!isManagedChannel) return;
+  if (!meta || message.channel.id !== meta.channelId) return;
 
   await message.delete().catch(() => {});
 

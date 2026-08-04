@@ -35,24 +35,6 @@ db.exec(`
     message_id TEXT,
     updated_at TEXT NOT NULL
   );
-
-  CREATE TABLE IF NOT EXISTS season_peak_cache (
-    riot_name  TEXT NOT NULL,
-    riot_tag   TEXT NOT NULL,
-    region     TEXT NOT NULL,
-    season     TEXT NOT NULL,
-    payload    TEXT NOT NULL,
-    fetched_at TEXT NOT NULL,
-    PRIMARY KEY (riot_name, riot_tag, region, season)
-  );
-
-  CREATE TABLE IF NOT EXISTS guild_season_high_messages (
-    guild_id   TEXT NOT NULL,
-    season     TEXT NOT NULL,
-    message_id TEXT,
-    updated_at TEXT NOT NULL,
-    PRIMARY KEY (guild_id, season)
-  );
 `);
 
 // Migrate columns added after the table already existed on deployed volumes —
@@ -65,7 +47,6 @@ function ensureColumn(table, column, type) {
 }
 ensureColumn('guild_leaderboards', 'update_log_message_id', 'TEXT');
 ensureColumn('guild_leaderboards', 'info_message_id', 'TEXT');
-ensureColumn('guild_leaderboards', 'season_highs_channel_id', 'TEXT');
 
 const upsertPlayerStmt = db.prepare(`
   INSERT INTO players (discord_id, riot_name, riot_tag, region, updated_at)
@@ -126,55 +107,6 @@ const setUpdateLogMessageStmt = db.prepare(`
 
 const setInfoMessageStmt = db.prepare(`
   UPDATE guild_leaderboards SET info_message_id = @message_id WHERE guild_id = @guild_id
-`);
-
-const getCachedSeasonPeakStmt = db.prepare(`
-  SELECT payload, fetched_at FROM season_peak_cache
-  WHERE riot_name = ? AND riot_tag = ? AND region = ? AND season = ?
-`);
-
-const upsertSeasonPeakCacheStmt = db.prepare(`
-  INSERT INTO season_peak_cache (riot_name, riot_tag, region, season, payload, fetched_at)
-  VALUES (@riot_name, @riot_tag, @region, @season, @payload, @fetched_at)
-  ON CONFLICT(riot_name, riot_tag, region, season) DO UPDATE SET
-    payload = excluded.payload,
-    fetched_at = excluded.fetched_at
-`);
-
-const getGuildSeasonHighsChannelIdStmt = db.prepare(`
-  SELECT season_highs_channel_id FROM guild_leaderboards WHERE guild_id = ?
-`);
-
-const setGuildSeasonHighsChannelIdStmt = db.prepare(`
-  UPDATE guild_leaderboards SET season_highs_channel_id = @channel_id WHERE guild_id = @guild_id
-`);
-
-const getGuildSeasonHighMessageIdStmt = db.prepare(`
-  SELECT message_id FROM guild_season_high_messages WHERE guild_id = ? AND season = ?
-`);
-
-const upsertGuildSeasonHighMessageStmt = db.prepare(`
-  INSERT INTO guild_season_high_messages (guild_id, season, message_id, updated_at)
-  VALUES (@guild_id, @season, @message_id, @updated_at)
-  ON CONFLICT(guild_id, season) DO UPDATE SET
-    message_id = excluded.message_id,
-    updated_at = excluded.updated_at
-`);
-
-// INNER JOIN on purpose — a player with no cached peak for this season (never
-// played it, or peaks aren't tracked for it) should be absent from that
-// season's leaderboard entirely, not shown as pending/zero like the main
-// leaderboard does for a not-yet-fetched player.
-const getGuildSeasonHighRowsStmt = db.prepare(`
-  SELECT glm.discord_id, p.riot_name, p.riot_tag, p.region, spc.payload
-  FROM guild_leaderboard_members glm
-  JOIN players p ON p.discord_id = glm.discord_id
-  JOIN season_peak_cache spc
-    ON spc.riot_name = LOWER(p.riot_name)
-    AND spc.riot_tag = LOWER(p.riot_tag)
-    AND spc.region = LOWER(p.region)
-    AND spc.season = ?
-  WHERE glm.guild_id = ?
 `);
 
 function upsertPlayer({ discordId, riotName, riotTag, region }) {
@@ -249,56 +181,6 @@ function setGuildInfoMessage(guildId, messageId) {
   setInfoMessageStmt.run({ guild_id: guildId, message_id: messageId });
 }
 
-function getCachedSeasonPeak(riotName, riotTag, region, season) {
-  const row = getCachedSeasonPeakStmt.get(riotName, riotTag, region, season);
-  if (!row) return null;
-  return { payload: JSON.parse(row.payload), fetchedAt: row.fetched_at };
-}
-
-function setCachedSeasonPeak(riotName, riotTag, region, season, payload) {
-  upsertSeasonPeakCacheStmt.run({
-    riot_name: riotName,
-    riot_tag: riotTag,
-    region,
-    season,
-    payload: JSON.stringify(payload),
-    fetched_at: new Date().toISOString(),
-  });
-}
-
-function getGuildSeasonHighsChannelId(guildId) {
-  const row = getGuildSeasonHighsChannelIdStmt.get(guildId);
-  return row?.season_highs_channel_id ?? null;
-}
-
-function setGuildSeasonHighsChannelId(guildId, channelId) {
-  setGuildSeasonHighsChannelIdStmt.run({ guild_id: guildId, channel_id: channelId });
-}
-
-function getGuildSeasonHighMessageId(guildId, season) {
-  const row = getGuildSeasonHighMessageIdStmt.get(guildId, season);
-  return row?.message_id ?? null;
-}
-
-function setGuildSeasonHighMessageId(guildId, season, messageId) {
-  upsertGuildSeasonHighMessageStmt.run({
-    guild_id: guildId,
-    season,
-    message_id: messageId,
-    updated_at: new Date().toISOString(),
-  });
-}
-
-function getGuildSeasonHighRows(guildId, season) {
-  return getGuildSeasonHighRowsStmt.all(season, guildId).map((row) => ({
-    discordId: row.discord_id,
-    riotName: row.riot_name,
-    riotTag: row.riot_tag,
-    region: row.region,
-    payload: JSON.parse(row.payload),
-  }));
-}
-
 module.exports = {
   upsertPlayer,
   getCachedRank,
@@ -309,11 +191,4 @@ module.exports = {
   setGuildLeaderboardMeta,
   setGuildUpdateLogMessage,
   setGuildInfoMessage,
-  getCachedSeasonPeak,
-  setCachedSeasonPeak,
-  getGuildSeasonHighsChannelId,
-  setGuildSeasonHighsChannelId,
-  getGuildSeasonHighMessageId,
-  setGuildSeasonHighMessageId,
-  getGuildSeasonHighRows,
 };
