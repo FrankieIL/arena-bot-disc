@@ -436,7 +436,11 @@ async function toggleUpdateLogVisibility(guild) {
   const expanded = !isUpdateLogExpanded(guild.id);
   updateLogExpanded.set(guild.id, expanded);
 
-  await redrawUpdateLogMessage(guild, channel, meta.updateLogMessageId);
+  // Not awaited: the caller acknowledges the click by editing this
+  // message's own button row via the returned row below, and Discord only
+  // gives it 3 seconds to do that — this edit targets a different message,
+  // so it runs in the background instead of risking that deadline.
+  redrawUpdateLogMessage(guild, channel, meta.updateLogMessageId).catch(() => {});
 
   if (expanded) {
     const timer = setTimeout(() => {
