@@ -72,12 +72,8 @@ client.on('interactionCreate', async (interaction) => {
     try {
       const cooldownMs = getLiveRefreshCooldownRemainingMs(interaction.guildId);
       if (cooldownMs > 0) {
-        const seconds = Math.ceil(cooldownMs / 1000);
-        const minutes = Math.floor(seconds / 60);
-        const remainder = seconds % 60;
-        const wait = minutes > 0 ? `${minutes}m ${remainder}s` : `${remainder}s`;
         await interaction.reply({
-          content: `⏳ The leaderboard was just refreshed — try again in ${wait}.`,
+          content: '⏳ Updates have a 5 minute cooldown.',
           flags: MessageFlags.Ephemeral,
         });
         return;
@@ -98,9 +94,8 @@ client.on('interactionCreate', async (interaction) => {
     try {
       const cooldownMs = getUpdateLogCollapseRemainingMs(interaction.guildId);
       if (cooldownMs > 0) {
-        const seconds = Math.ceil(cooldownMs / 1000);
         await interaction.reply({
-          content: `⏳ Update data is already showing — it'll collapse again in ${seconds}s.`,
+          content: '⏳ Data is currently showing.',
           flags: MessageFlags.Ephemeral,
         });
         return;
