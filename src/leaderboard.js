@@ -35,6 +35,11 @@ const lastLiveRefreshAt = new Map();
 // second click is rejected with while that window is still open.
 const updateLogExpanded = new Map();
 const updateLogExpandedUntil = new Map();
+// Bumped on every expand so a stale auto-collapse timer can tell it's been
+// superseded by a newer click landing around the same moment and skip its
+// own collapse — otherwise that late timer's redraw can race the newer
+// click's expand redraw and win, visually collapsing a still-active window.
+const updateLogExpandToken = new Map();
 const AUTO_COLLAPSE_MS = 30 * 1000;
 // Latest known rows/statuses/payloads for each guild's update-log message,
 // kept live throughout a run so an expand click landing mid-update can
@@ -425,6 +430,9 @@ async function expandUpdateLog(guild) {
     ?? (await guild.channels.fetch(meta.channelId).catch(() => null));
   if (!channel) return;
 
+  const token = (updateLogExpandToken.get(guild.id) ?? 0) + 1;
+  updateLogExpandToken.set(guild.id, token);
+
   updateLogExpanded.set(guild.id, true);
   updateLogExpandedUntil.set(guild.id, Date.now() + AUTO_COLLAPSE_MS);
 
@@ -434,6 +442,10 @@ async function expandUpdateLog(guild) {
   // opening a gap where a click landing in it starts a fresh expand only
   // for this stale timer to cut it short moments later.
   setTimeout(() => {
+    // A newer click already claimed the token in that same window — its
+    // own timer owns the collapse now, so this stale one backs off instead
+    // of racing that click's expand redraw with a collapse redraw of its own.
+    if (updateLogExpandToken.get(guild.id) !== token) return;
     updateLogExpanded.set(guild.id, false);
     updateLogExpandedUntil.delete(guild.id);
     redrawUpdateLogMessage(guild, channel, meta.updateLogMessageId).catch(() => {});
