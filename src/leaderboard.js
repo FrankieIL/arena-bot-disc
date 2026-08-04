@@ -428,13 +428,18 @@ async function expandUpdateLog(guild) {
   updateLogExpanded.set(guild.id, true);
   updateLogExpandedUntil.set(guild.id, Date.now() + AUTO_COLLAPSE_MS);
 
-  await redrawUpdateLogMessage(guild, channel, meta.updateLogMessageId);
-
+  // Scheduled from the same instant as the deadline above, before the
+  // redraw's await — starting it after would let this timer's real fire
+  // time drift past updateLogExpandedUntil by however long that edit took,
+  // opening a gap where a click landing in it starts a fresh expand only
+  // for this stale timer to cut it short moments later.
   setTimeout(() => {
     updateLogExpanded.set(guild.id, false);
     updateLogExpandedUntil.delete(guild.id);
     redrawUpdateLogMessage(guild, channel, meta.updateLogMessageId).catch(() => {});
   }, AUTO_COLLAPSE_MS);
+
+  await redrawUpdateLogMessage(guild, channel, meta.updateLogMessageId);
 }
 
 /**
