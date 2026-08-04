@@ -386,13 +386,12 @@ function recordUpdateLogState(guildId, state) {
  * self-healingly next time a real update runs.
  */
 async function redrawUpdateLogMessage(guild, channel, messageId) {
-  const message = await channel.messages.fetch(messageId).catch(() => null);
-  if (!message) return;
-
   const state = updateLogRunState.get(guild.id)
     ?? { rows: sortLeaderboardRows(getGuildLeaderboardRows(guild.id)).all, statuses: new Map(), payloads: new Map(), finished: true, allFailed: false, completedAt: null };
 
-  await message.edit({
+  // Edits by ID directly rather than fetching the message first — the
+  // fetch would just be a wasted round trip since only the ID is needed.
+  await channel.messages.edit(messageId, {
     embeds: [buildUpdateLogEmbed(state.rows, state.statuses, state.payloads, {
       finished: state.finished,
       allFailed: state.allFailed,
@@ -405,32 +404,31 @@ async function redrawUpdateLogMessage(guild, channel, messageId) {
 /**
  * Re-renders just the leaderboard message's button row (embed untouched) so
  * its View/Hide Update Data label stays in sync with the update log's
- * current expand state whenever that state changes outside of a normal
- * leaderboard redraw.
+ * current expand state. Only used by the auto-collapse timer — the toggle
+ * click itself updates this same button row for free via interaction.update.
  */
 async function redrawLeaderboardButtons(guild, channel, messageId) {
   if (!messageId) return;
-  const message = await channel.messages.fetch(messageId).catch(() => null);
-  if (!message) return;
-  await message.edit({ components: [buildLeaderboardButtons(guild.id)] }).catch(() => {});
+  await channel.messages.edit(messageId, { components: [buildLeaderboardButtons(guild.id)] }).catch(() => {});
 }
 
 /**
  * Handles a View Update Data click: flips the guild's update-log message
- * between its collapsed one-liner and the full per-player table, updates
- * the button's label to match, and — when expanding — starts a 30-second
- * timer that auto-collapses it (and reverts the label) again. Works
- * mid-update too, since it just re-renders whatever progress is currently
- * recorded via recordUpdateLogState. A no-op if no update has ever run for
- * this guild, since there's nothing to reveal yet.
+ * between its collapsed one-liner and the full per-player table, and — when
+ * expanding — starts a 30-second timer that auto-collapses it (and reverts
+ * the button label) again. Works mid-update too, since it just re-renders
+ * whatever progress is currently recorded via recordUpdateLogState. Returns
+ * the updated button row for the caller to apply to the clicked message via
+ * interaction.update, or null if no update has ever run for this guild
+ * (nothing to reveal yet).
  */
 async function toggleUpdateLogVisibility(guild) {
   const meta = getGuildLeaderboardMeta(guild.id);
-  if (!meta?.updateLogMessageId) return;
+  if (!meta?.updateLogMessageId) return null;
 
   const channel = guild.channels.cache.get(meta.channelId)
     ?? (await guild.channels.fetch(meta.channelId).catch(() => null));
-  if (!channel) return;
+  if (!channel) return null;
 
   clearTimeout(autoCollapseTimers.get(guild.id));
   autoCollapseTimers.delete(guild.id);
@@ -438,10 +436,7 @@ async function toggleUpdateLogVisibility(guild) {
   const expanded = !isUpdateLogExpanded(guild.id);
   updateLogExpanded.set(guild.id, expanded);
 
-  await Promise.all([
-    redrawUpdateLogMessage(guild, channel, meta.updateLogMessageId),
-    redrawLeaderboardButtons(guild, channel, meta.messageId),
-  ]);
+  await redrawUpdateLogMessage(guild, channel, meta.updateLogMessageId);
 
   if (expanded) {
     const timer = setTimeout(() => {
@@ -453,6 +448,8 @@ async function toggleUpdateLogVisibility(guild) {
     }, AUTO_COLLAPSE_MS);
     autoCollapseTimers.set(guild.id, timer);
   }
+
+  return buildLeaderboardButtons(guild.id);
 }
 
 /**

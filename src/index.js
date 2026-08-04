@@ -95,8 +95,14 @@ client.on('interactionCreate', async (interaction) => {
 
   if (interaction.isButton() && interaction.customId === VIEW_UPDATE_DATA_BUTTON_ID) {
     try {
-      await interaction.deferUpdate();
-      await toggleUpdateLogVisibility(interaction.guild);
+      const buttons = await toggleUpdateLogVisibility(interaction.guild);
+      // Acknowledges the click and updates its own button label in one
+      // call, instead of deferring and editing separately.
+      if (buttons) {
+        await interaction.update({ components: [buttons] });
+      } else {
+        await interaction.deferUpdate();
+      }
     } catch (err) {
       console.error('Error handling view-update-data button:', err);
     }
