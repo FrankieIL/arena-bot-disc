@@ -180,6 +180,7 @@ function buildUpdateLogEmbed(rows, statuses, payloads, {
   finished = false,
   allFailed = false,
   completedAt = null,
+  durationMs = null,
   expanded = false,
 } = {}) {
   if (!expanded) {
@@ -202,8 +203,17 @@ function buildUpdateLogEmbed(rows, statuses, payloads, {
     { name: 'Status', value: statusLines.join('\n'), inline: true },
   );
 
-  if (finished && allFailed) {
-    embed.addFields({ name: '​', value: '-# ⚠️ Update failed — maybe Arena Sweats is down?', inline: false });
+  if (finished) {
+    const footerLines = [];
+    if (durationMs != null) {
+      footerLines.push(`-# Last update took ${(durationMs / 1000).toFixed(1)}s`);
+    }
+    if (allFailed) {
+      footerLines.push('-# ⚠️ Update failed — maybe Arena Sweats is down?');
+    }
+    if (footerLines.length > 0) {
+      embed.addFields({ name: '​', value: footerLines.join('\n'), inline: false });
+    }
   }
 
   return embed;
@@ -386,7 +396,7 @@ function recordUpdateLogState(guildId, state) {
  */
 async function redrawUpdateLogMessage(guild, channel, messageId) {
   const state = updateLogRunState.get(guild.id)
-    ?? { rows: sortLeaderboardRows(getGuildLeaderboardRows(guild.id)).all, statuses: new Map(), payloads: new Map(), finished: true, allFailed: false, completedAt: null };
+    ?? { rows: sortLeaderboardRows(getGuildLeaderboardRows(guild.id)).all, statuses: new Map(), payloads: new Map(), finished: true, allFailed: false, completedAt: null, durationMs: null };
 
   // Edits by ID directly rather than fetching the message first — the
   // fetch would just be a wasted round trip since only the ID is needed.
@@ -395,6 +405,7 @@ async function redrawUpdateLogMessage(guild, channel, messageId) {
       finished: state.finished,
       allFailed: state.allFailed,
       completedAt: state.completedAt,
+      durationMs: state.durationMs,
       expanded: isUpdateLogExpanded(guild.id),
     })],
   }).catch(() => {});
@@ -478,7 +489,8 @@ async function sweepStrayMessages(channel) {
  * doesn't stop the rest; the log message shows exactly which ones did.
  */
 async function refreshGuildLeaderboardLive(guild) {
-  lastLiveRefreshAt.set(guild.id, Date.now());
+  const startedAt = Date.now();
+  lastLiveRefreshAt.set(guild.id, startedAt);
 
   const resolved = await ensureLeaderboardChannel(guild);
   const { channel } = resolved;
@@ -494,7 +506,9 @@ async function refreshGuildLeaderboardLive(guild) {
 
   const statuses = new Map(rows.map((row) => [row.discordId, 'pending']));
   const payloads = new Map(rows.map((row) => [row.discordId, row.payload]));
-  recordUpdateLogState(guild.id, { rows, statuses, payloads, finished: false, allFailed: false, completedAt: null });
+  recordUpdateLogState(guild.id, {
+    rows, statuses, payloads, finished: false, allFailed: false, completedAt: null, durationMs: null,
+  });
   const logMessage = await ensureUpdateLogMessage(guild, channel, rows, statuses, payloads);
 
   let successCount = 0;
@@ -507,7 +521,9 @@ async function refreshGuildLeaderboardLive(guild) {
     } catch {
       statuses.set(row.discordId, 'failure');
     }
-    recordUpdateLogState(guild.id, { rows, statuses, payloads, finished: false, allFailed: false, completedAt: null });
+    recordUpdateLogState(guild.id, {
+      rows, statuses, payloads, finished: false, allFailed: false, completedAt: null, durationMs: null,
+    });
     await logMessage.edit({
       embeds: [buildUpdateLogEmbed(rows, statuses, payloads, { expanded: isUpdateLogExpanded(guild.id) })],
     }).catch(() => {});
@@ -522,12 +538,14 @@ async function refreshGuildLeaderboardLive(guild) {
     rows.map((row) => ({ ...row, payload: payloads.get(row.discordId) })),
   ).all;
   const completedAt = new Date().toISOString();
-  recordUpdateLogState(guild.id, { rows: finalRows, statuses, payloads, finished: true, allFailed, completedAt });
+  const durationMs = Date.now() - startedAt;
+  recordUpdateLogState(guild.id, { rows: finalRows, statuses, payloads, finished: true, allFailed, completedAt, durationMs });
   await logMessage.edit({
     embeds: [buildUpdateLogEmbed(finalRows, statuses, payloads, {
       finished: true,
       allFailed,
       completedAt,
+      durationMs,
       expanded: isUpdateLogExpanded(guild.id),
     })],
   }).catch(() => {});
