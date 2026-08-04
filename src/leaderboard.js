@@ -107,13 +107,12 @@ function formatRegionRank(row) {
 
 /**
  * league_rank includes trailing "NN LP" for divisional tiers (e.g.
- * "Diamond I 45 LP") — stripped since the numeric rating alongside it
- * already conveys progress within the tier. Prefixed with that tier's icon
- * (see rankEmojis.js) when one's been uploaded; the first word of the tier
- * text (e.g. "Diamond" out of "Diamond I") is the lookup key.
+ * "Diamond I 45 LP") — kept as-is. Prefixed with that tier's icon (see
+ * rankEmojis.js) when one's been uploaded; the first word of the tier text
+ * (e.g. "Diamond" out of "Diamond I 45 LP") is the lookup key.
  */
 function formatTier(payload) {
-  const tier = (payload.league_rank ?? 'Unranked').replace(/\s*\d+\s*lp\b/i, '').trim();
+  const tier = (payload.league_rank ?? 'Unranked').trim();
   const key = tier.split(' ')[0].toLowerCase();
   const icon = RANK_EMOJIS[key];
   return icon ? `${icon} ${tier}` : tier;
