@@ -3,6 +3,7 @@ const { REGIONS } = require('../config');
 const { upsertPlayer, addGuildLeaderboardMember } = require('../db');
 const { getPlayerRank } = require('../arenaSweats');
 const { refreshGuildLeaderboard } = require('../leaderboard');
+const { ensureStatsChannel } = require('../stats');
 
 const data = new SlashCommandBuilder()
   .setName('setign')
@@ -63,6 +64,12 @@ async function execute(interaction) {
     const warning = await refreshGuildLeaderboard(interaction.guild);
     if (warning) {
       embed.addFields({ name: 'Leaderboard', value: warning });
+    }
+
+    try {
+      await ensureStatsChannel(interaction.guild);
+    } catch (err) {
+      embed.addFields({ name: 'Stats channel', value: `Couldn't create #arena-stats (${err.message}).` });
     }
   }
 

@@ -60,11 +60,9 @@ function buildInfoEmbed() {
     .setTitle('ℹ️ About this channel')
     .setDescription(
       [
-        'Run **`/stats`** anywhere to post your Arena stat card here — win rate, top placement rate, recent matches, and most-played champions.',
+        'Run **`/stats`** in this channel to post your Arena stat card — win rate, top placement rate, recent matches, and most-played champions.',
         '',
         'Add `user` to check someone else\'s stats instead of your own, e.g. `/stats user:@someone`.',
-        '',
-        `Each card auto-deletes after ${AUTO_DELETE_MS / 60000} minutes to keep this channel tidy.`,
       ].join('\n'),
     );
 }
@@ -163,7 +161,7 @@ function buildStatsEmbed(riotName, riotTag, region, rankPayload, topChamps, matc
       { name: 'Most Played Champions', value: formatChampionLines(topChamps), inline: false },
       { name: 'Recent Matches', value: formatMatchLines(matches), inline: false },
     )
-    .setFooter({ text: `This card auto-deletes in ${AUTO_DELETE_MS / 60000} minutes • ${region.toUpperCase()}` });
+    .setFooter({ text: region.toUpperCase() });
 
   return embed;
 }
@@ -201,6 +199,7 @@ async function postPlayerStats(guild, targetDiscordId) {
 
 module.exports = {
   postPlayerStats,
+  ensureStatsChannel,
   PlayerNotRegisteredError,
   PlayerNotFoundError,
 };

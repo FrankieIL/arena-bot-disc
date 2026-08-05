@@ -1,6 +1,7 @@
 const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const { postPlayerStats, PlayerNotRegisteredError, PlayerNotFoundError } = require('../stats');
 const { ArenaSweatsUnavailableError } = require('../arenaSweats');
+const { getGuildStatsChannel } = require('../db');
 
 const data = new SlashCommandBuilder()
   .setName('stats')
@@ -16,6 +17,28 @@ async function execute(interaction) {
   if (!interaction.guild) {
     await interaction.reply({
       content: 'This command only works in a server.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const statsChannelMeta = getGuildStatsChannel(interaction.guildId);
+  const statsChannel = statsChannelMeta
+    ? interaction.guild.channels.cache.get(statsChannelMeta.channelId)
+      ?? (await interaction.guild.channels.fetch(statsChannelMeta.channelId).catch(() => null))
+    : null;
+
+  if (!statsChannel) {
+    await interaction.reply({
+      content: "The stats channel hasn't been set up yet — ask someone to run `/setign` first.",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (interaction.channelId !== statsChannel.id) {
+    await interaction.reply({
+      content: `Please use this command in ${statsChannel}.`,
       flags: MessageFlags.Ephemeral,
     });
     return;
