@@ -35,6 +35,13 @@ db.exec(`
     message_id TEXT,
     updated_at TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS guild_stats_channels (
+    guild_id        TEXT PRIMARY KEY,
+    channel_id      TEXT NOT NULL,
+    info_message_id TEXT,
+    updated_at      TEXT NOT NULL
+  );
 `);
 
 // Migrate columns added after the table already existed on deployed volumes —
@@ -88,6 +95,26 @@ const getGuildLeaderboardRowsStmt = db.prepare(`
   WHERE glm.guild_id = ?
 `);
 
+const getPlayerStmt = db.prepare(`
+  SELECT riot_name, riot_tag, region FROM players WHERE discord_id = ?
+`);
+
+const getGuildStatsChannelStmt = db.prepare(`
+  SELECT channel_id, info_message_id FROM guild_stats_channels WHERE guild_id = ?
+`);
+
+const upsertGuildStatsChannelStmt = db.prepare(`
+  INSERT INTO guild_stats_channels (guild_id, channel_id, info_message_id, updated_at)
+  VALUES (@guild_id, @channel_id, @info_message_id, @updated_at)
+  ON CONFLICT(guild_id) DO UPDATE SET
+    channel_id = excluded.channel_id,
+    updated_at = excluded.updated_at
+`);
+
+const setGuildStatsInfoMessageStmt = db.prepare(`
+  UPDATE guild_stats_channels SET info_message_id = @message_id WHERE guild_id = @guild_id
+`);
+
 const getGuildLeaderboardMetaStmt = db.prepare(`
   SELECT channel_id, message_id, update_log_message_id, info_message_id FROM guild_leaderboards WHERE guild_id = ?
 `);
@@ -117,6 +144,12 @@ function upsertPlayer({ discordId, riotName, riotTag, region }) {
     region,
     updated_at: new Date().toISOString(),
   });
+}
+
+function getPlayer(discordId) {
+  const row = getPlayerStmt.get(discordId);
+  if (!row) return null;
+  return { riotName: row.riot_name, riotTag: row.riot_tag, region: row.region };
 }
 
 function getCachedRank(riotName, riotTag, region) {
@@ -181,8 +214,28 @@ function setGuildInfoMessage(guildId, messageId) {
   setInfoMessageStmt.run({ guild_id: guildId, message_id: messageId });
 }
 
+function getGuildStatsChannel(guildId) {
+  const row = getGuildStatsChannelStmt.get(guildId);
+  if (!row) return null;
+  return { channelId: row.channel_id, infoMessageId: row.info_message_id };
+}
+
+function setGuildStatsChannel(guildId, channelId) {
+  upsertGuildStatsChannelStmt.run({
+    guild_id: guildId,
+    channel_id: channelId,
+    info_message_id: null,
+    updated_at: new Date().toISOString(),
+  });
+}
+
+function setGuildStatsInfoMessage(guildId, messageId) {
+  setGuildStatsInfoMessageStmt.run({ guild_id: guildId, message_id: messageId });
+}
+
 module.exports = {
   upsertPlayer,
+  getPlayer,
   getCachedRank,
   setCachedRank,
   addGuildLeaderboardMember,
@@ -191,4 +244,7 @@ module.exports = {
   setGuildLeaderboardMeta,
   setGuildUpdateLogMessage,
   setGuildInfoMessage,
+  getGuildStatsChannel,
+  setGuildStatsChannel,
+  setGuildStatsInfoMessage,
 };

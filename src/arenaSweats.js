@@ -90,8 +90,44 @@ async function getPlayerRank(riotName, riotTag, region) {
   }
 }
 
+/**
+ * Top 3 champions by score this season (Arena Sweats caps this endpoint at
+ * 3 regardless of any limit param — confirmed live). A brand-new player
+ * with no games this season just gets an empty array back, not an error.
+ */
+async function getPlayerTopChampions(riotName, riotTag, region) {
+  const player = `${riotName}#${riotTag}`;
+  const regionParam = encodeURIComponent(region.toLowerCase());
+  const playerParam = encodeURIComponent(player);
+
+  const result = await enqueue(() =>
+    fetchJson(`${BASE_URL}/player-topchamps?player_name=${playerParam}&region=${regionParam}&season=${SEASON}`),
+  );
+  return result.champions ?? [];
+}
+
+/**
+ * Most recent matches, newest first. Paginated on Arena Sweats' side but
+ * this always asks for the first page only — the stats card just shows a
+ * short recent-matches list, not full history.
+ */
+async function getPlayerMatchHistory(riotName, riotTag, region, limit = 5) {
+  const player = `${riotName}#${riotTag}`;
+  const regionParam = encodeURIComponent(region.toLowerCase());
+  const playerParam = encodeURIComponent(player);
+
+  const result = await enqueue(() =>
+    fetchJson(
+      `${BASE_URL}/player-matchhistory?player_name=${playerParam}&region=${regionParam}&season=${SEASON}&limit=${limit}&offset=0`,
+    ),
+  );
+  return result.match_history ?? [];
+}
+
 module.exports = {
   getPlayerRank,
+  getPlayerTopChampions,
+  getPlayerMatchHistory,
   PlayerNotFoundError,
   ArenaSweatsUnavailableError,
 };
