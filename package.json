@@ -7,14 +7,17 @@
   "scripts": {
     "start": "node src/index.js",
     "deploy-commands": "node src/deploy-commands.js",
-    "upload-rank-emojis": "node scripts/upload-rank-emojis.js"
+    "upload-rank-emojis": "node scripts/upload-rank-emojis.js",
+    "generate-placement-icons": "node scripts/generate-placement-icons.js",
+    "upload-placement-emojis": "node scripts/upload-placement-emojis.js"
   },
   "engines": {
     "node": ">=22.5.0"
   },
   "dependencies": {
     "discord.js": "^14.16.3",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "pngjs": "^7.0.0"
   },
   "license": "MIT"
 }

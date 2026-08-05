@@ -12,11 +12,12 @@ const {
   PlayerNotFoundError,
 } = require('./arenaSweats');
 const RANK_EMOJIS = require('./rankEmojis');
+const PLACEMENT_EMOJIS = require('./placementEmojis');
 
 const CHANNEL_NAME = 'arena-stats';
 const AUTO_DELETE_MS = 5 * 60 * 1000;
-const MATCH_HISTORY_LIMIT = 5;
-const PLACING_MEDALS = { '1st': '🥇', '2nd': '🥈', '3rd': '🥉' };
+const MATCH_HISTORY_LIMIT = 20;
+const GAMES_PER_ROW = 10;
 const RANK_MEDALS = ['🥇', '🥈', '🥉'];
 
 class PlayerNotRegisteredError extends Error {}
@@ -123,17 +124,44 @@ function formatChampionLines(champions) {
     .join('\n');
 }
 
-function formatMatchLines(matches) {
+/**
+ * `tophalf_label` is "Top 3" for the 3x6 team-size format (6 possible
+ * placements) or "Top 4" for 2x8 (8 possible placements) — the number in it
+ * doubles as the good/bad cutoff for a placement number, so no separate
+ * format lookup is needed.
+ */
+function topHalfCutoff(topHalfLabel) {
+  const match = /\d+/.exec(topHalfLabel || '');
+  return match ? Number(match[0]) : 4;
+}
+
+/**
+ * Placement history as a grid of colored tiles (green = top-half finish,
+ * red = bottom-half), styled after arenasweats.lol's own recent-games
+ * display — see scripts/generate-placement-icons.js for how the tiles
+ * themselves were made. Falls back to a plain number for any placement
+ * outside 1-8 (shouldn't happen, but better than a broken emoji mention).
+ */
+function buildRecentGamesGrid(matches, topHalfLabel) {
   if (!matches || matches.length === 0) {
     return '_No recent matches found._';
   }
-  return matches
-    .map((match) => {
-      const medal = PLACING_MEDALS[match.placing] ?? '';
-      const change = match.rating_change > 0 ? `+${match.rating_change}` : `${match.rating_change}`;
-      return `${medal} ${match.placing} — **${match.champion}** (${change})`.trim();
-    })
-    .join('\n');
+
+  const cutoff = topHalfCutoff(topHalfLabel);
+  const tiles = matches
+    .map((match) => parseInt(match.placing, 10))
+    .filter((placement) => !Number.isNaN(placement))
+    .map((placement) => {
+      const variant = placement <= cutoff ? 'good' : 'bad';
+      return PLACEMENT_EMOJIS[placement]?.[variant] ?? `${placement}`;
+    });
+
+  const rows = [];
+  for (let i = 0; i < tiles.length; i += GAMES_PER_ROW) {
+    rows.push(tiles.slice(i, i + GAMES_PER_ROW).join(' '));
+  }
+
+  return `${rows.join('\n')}\n-# Last ${tiles.length} game${tiles.length === 1 ? '' : 's'}`;
 }
 
 /**
@@ -159,7 +187,7 @@ function buildStatsEmbed(riotName, riotTag, region, rankPayload, topChamps, matc
       { name: `Best ${topHalfLabel} Streak`, value: `${rankPayload.best_tophalf_streak ?? '—'}`, inline: true },
       { name: 'Avg KDA', value: `${rankPayload.avg_kda ?? '—'}`, inline: true },
       { name: 'Most Played Champions', value: formatChampionLines(topChamps), inline: false },
-      { name: 'Recent Matches', value: formatMatchLines(matches), inline: false },
+      { name: 'Recent Matches', value: buildRecentGamesGrid(matches, topHalfLabel), inline: false },
     )
     .setFooter({ text: region.toUpperCase() });
 
