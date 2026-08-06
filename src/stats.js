@@ -111,6 +111,49 @@ async function ensureStatsChannel(guild) {
   return channel;
 }
 
+/**
+ * The stats channel allows free chat (unlike the leaderboard channel, which
+ * deletes stray messages on sight) but still needs to stay tidy. Instead of
+ * each card tracking its own separate delete timer, every message posted to
+ * the channel — cards and stray chat alike — is queued here and swept
+ * together AUTO_DELETE_MS after the *most recently posted* card, so a new
+ * card resets the clock for everything still pending. Once the timer fires
+ * with nothing new queued behind it, the channel is empty again.
+ */
+const pendingCleanup = new Map(); // channelId -> { messageIds: Set<string>, timer: NodeJS.Timeout|null }
+
+function getCleanupState(channelId) {
+  let state = pendingCleanup.get(channelId);
+  if (!state) {
+    state = { messageIds: new Set(), timer: null };
+    pendingCleanup.set(channelId, state);
+  }
+  return state;
+}
+
+async function sweepChannel(channel) {
+  const state = pendingCleanup.get(channel.id);
+  if (!state) return;
+  pendingCleanup.delete(channel.id);
+
+  const ids = [...state.messageIds];
+  if (ids.length > 0) {
+    await channel.bulkDelete(ids, true).catch(() => {});
+  }
+}
+
+function scheduleChannelCleanup(channel, messageId) {
+  const state = getCleanupState(channel.id);
+  state.messageIds.add(messageId);
+  if (state.timer) clearTimeout(state.timer);
+  state.timer = setTimeout(() => sweepChannel(channel), AUTO_DELETE_MS);
+}
+
+/** Queues a non-card message (stray chat) to be swept alongside the next card cleanup, without starting/resetting the timer itself. */
+function trackStrayMessage(channel, messageId) {
+  getCleanupState(channel.id).messageIds.add(messageId);
+}
+
 function formatChampionLines(champions) {
   if (!champions || champions.length === 0) {
     return '_No games played this season yet._';
@@ -219,8 +262,7 @@ async function postPlayerStats(guild, targetDiscordId) {
   const channel = await ensureStatsChannel(guild);
   const embed = buildStatsEmbed(riotName, riotTag, region, rankPayload, topChamps, matches);
   const message = await channel.send({ embeds: [embed] });
-
-  setTimeout(() => message.delete().catch(() => {}), AUTO_DELETE_MS);
+  scheduleChannelCleanup(channel, message.id);
 
   return { jumpLink: message.url };
 }
@@ -228,6 +270,7 @@ async function postPlayerStats(guild, targetDiscordId) {
 module.exports = {
   postPlayerStats,
   ensureStatsChannel,
+  trackStrayMessage,
   PlayerNotRegisteredError,
   PlayerNotFoundError,
 };

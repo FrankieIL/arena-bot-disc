@@ -12,7 +12,7 @@ Built for a friend group's private server; the invite link below is genuinely ru
 - A **`#arena-leaderboard`** channel is created automatically, ranking everyone registered in that server by rating, medals for the top 3, and each player's tier shown with its own icon (uploaded once as free application emojis — see Setup).
 - An **Update** button on the leaderboard live-refreshes every registered player at once, with a running ✅ / ❌ / ⏳ progress display (plus how stale each player's underlying data actually is) so a single failed lookup is visible without derailing the rest. The same refresh also runs automatically every hour, on the hour.
 - All of it is **self-healing** — delete the leaderboard message, the progress message, or the whole channel, and the next interaction quietly rebuilds whatever's missing.
-- **`/stats [user]`** posts a stat card — rank, win rate, top placement rate, average placing/KDA, streaks, most-played champions, and recent match history — to an auto-created **`#arena-stats`** channel. Each card auto-deletes 5 minutes after posting to keep the channel from filling up.
+- **`/stats [user]`** posts a stat card — rank, win rate, top placement rate, average placing/KDA, streaks, most-played champions, and recent match history — to an auto-created **`#arena-stats`** channel. Cards (and any chat sent alongside them) are swept away in the background 5 minutes after the most recent card, keeping the channel tidy without banning conversation.
 
 ## Why this is a bit more interesting than "wraps an API"
 
@@ -120,7 +120,7 @@ Posts a stat card for yourself, or for another registered member if you pass `us
 Pulls current-season data straight from Arena Sweats (rank/rate stats from the same call `/setign`'s cache seeding uses, plus their top-champions and match-history endpoints) — there's no caching here, since each card is a one-shot snapshot rather than a persistently displayed message. If the target hasn't run `/setign`, or the live fetch fails, you get a private (only-you-can-see-it) error instead.
 
 **`#arena-stats`**
-Created automatically the first time `/stats` is run in a server, with a static info message on top (same self-healing, "only created, never edited" pattern as the leaderboard's info message) explaining the channel and how to use `/stats`. Every card posted here is transient — it's deleted automatically 5 minutes after posting, so the channel never accumulates old lookups. That timer lives in memory, so a card posted right before a restart may outlive 5 minutes; same tradeoff the leaderboard's own auto-collapsing update log already accepts.
+Created automatically the first time `/stats` is run in a server, with a static info message on top (same self-healing, "only created, never edited" pattern as the leaderboard's info message) explaining the channel and how to use `/stats`. Unlike the leaderboard channel, chat isn't deleted on sight here — instead, every card and any stray messages sent alongside it are swept together 5 minutes after the *most recently posted* card, so a fresh card resets the clock for everything still waiting to clear. That timer lives in memory, so activity right before a restart may outlive 5 minutes; same tradeoff the leaderboard's own auto-collapsing update log already accepts.
 
 ## Deploying to Railway (24/7 hosting)
 

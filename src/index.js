@@ -1,6 +1,6 @@
 const { Client, GatewayIntentBits, Collection, MessageFlags } = require('discord.js');
 const { DISCORD_TOKEN } = require('./config');
-const { getGuildLeaderboardMeta } = require('./db');
+const { getGuildLeaderboardMeta, getGuildStatsChannel } = require('./db');
 const setign = require('./commands/setign');
 const stats = require('./commands/stats');
 const {
@@ -11,6 +11,7 @@ const {
   REFRESH_BUTTON_ID,
   VIEW_UPDATE_DATA_BUTTON_ID,
 } = require('./leaderboard');
+const { trackStrayMessage } = require('./stats');
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
 
@@ -114,18 +115,24 @@ client.on('interactionCreate', async (interaction) => {
 client.on('messageCreate', async (message) => {
   if (!message.guild || message.author.id === client.user.id) return;
 
-  const meta = getGuildLeaderboardMeta(message.guild.id);
-  if (!meta || message.channel.id !== meta.channelId) return;
+  const leaderboardMeta = getGuildLeaderboardMeta(message.guild.id);
+  if (leaderboardMeta && message.channel.id === leaderboardMeta.channelId) {
+    await message.delete().catch(() => {});
 
-  await message.delete().catch(() => {});
+    const notice = await message.channel.send({
+      content: `⚠️ ${message.author}, this channel is for the leaderboard only — your message was removed.`,
+      allowedMentions: { users: [message.author.id] },
+    }).catch(() => null);
 
-  const notice = await message.channel.send({
-    content: `⚠️ ${message.author}, this channel is for the leaderboard only — your message was removed.`,
-    allowedMentions: { users: [message.author.id] },
-  }).catch(() => null);
+    if (notice) {
+      setTimeout(() => notice.delete().catch(() => {}), STRAY_MESSAGE_NOTICE_LIFETIME_MS);
+    }
+    return;
+  }
 
-  if (notice) {
-    setTimeout(() => notice.delete().catch(() => {}), STRAY_MESSAGE_NOTICE_LIFETIME_MS);
+  const statsMeta = getGuildStatsChannel(message.guild.id);
+  if (statsMeta && message.channel.id === statsMeta.channelId) {
+    trackStrayMessage(message.channel, message.id);
   }
 });
 
