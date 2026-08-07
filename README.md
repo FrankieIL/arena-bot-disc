@@ -1,6 +1,6 @@
 # Arena Sweats Discord Bot
 
-A Discord bot that turns [arenasweats.lol](https://arenasweats.lol) — an undocumented, community-run stats tracker for League of Legends' [Arena mode](https://www.leagueoflegends.com/en-us/news/game-updates/arena-2-0/) — into a live, self-maintaining leaderboard for any Discord server. Register once with `/setign`; the bot creates a `#arena-leaderboard` channel that tracks everyone who's registered, refreshes on demand, and quietly repairs itself if anything gets deleted. Run `/stats` any time for a personal stat card — win rate, top placement rate, recent matches, most-played champions — posted to a dedicated `#arena-stats` channel that tidies itself up automatically.
+A Discord bot that turns [arenasweats.lol](https://arenasweats.lol) — an undocumented, community-run stats tracker for League of Legends' [Arena mode](https://www.leagueoflegends.com/en-us/news/game-updates/arena-2-0/) — into a live, self-maintaining leaderboard for any Discord server, alongside a second leaderboard for ranked Solo/Duo sourced directly from Riot's official API. Register once with `/setign`; the bot creates `#arena-leaderboard` and `#soloq-leaderboard` channels that track everyone who's registered, refresh on demand, and quietly repair themselves if anything gets deleted. Run `/stats` any time for a personal Arena stat card — win rate, top placement rate, recent matches, most-played champions — posted to a dedicated `#arena-stats` channel that tidies itself up automatically.
 
 Built for a friend group's private server; the invite link below is genuinely running 24/7, not a demo screenshot.
 
@@ -8,11 +8,12 @@ Built for a friend group's private server; the invite link below is genuinely ru
 
 ## What it does
 
-- **`/setign riot_id region`** links a Riot ID to a Discord account.
-- A **`#arena-leaderboard`** channel is created automatically, ranking everyone registered in that server by rating, medals for the top 3, and each player's tier shown with its own icon (uploaded once as free application emojis — see Setup).
-- An **Update** button on the leaderboard live-refreshes every registered player at once, with a running ✅ / ❌ / ⏳ progress display (plus how stale each player's underlying data actually is) so a single failed lookup is visible without derailing the rest. The same refresh also runs automatically every hour, on the hour.
-- All of it is **self-healing** — delete the leaderboard message, the progress message, or the whole channel, and the next interaction quietly rebuilds whatever's missing.
-- **`/stats [user]`** posts a stat card — rank, win rate, top placement rate, average placing/KDA, streaks, most-played champions, and recent match history — to an auto-created **`#arena-stats`** channel. Cards (and any chat sent alongside them) are swept away in the background 5 minutes after the most recent card, keeping the channel tidy without banning conversation.
+- **`/setign riot_id region`** links a Riot ID to a Discord account — the same registration feeds both leaderboards below, since it's the same League account either way.
+- A **`#arena-leaderboard`** channel is created automatically, ranking everyone registered in that server by Arena rating, medals for the top 3, and each player's tier shown with its own icon (uploaded once as free application emojis — see Setup).
+- A **`#soloq-leaderboard`** channel does the same for ranked Solo/Duo, pulled straight from Riot's own API instead of arenasweats.lol — same layout, same Update button and progress log, sorted by tier → division → LP instead of a flat rating number (see Usage for why).
+- An **Update** button on each leaderboard live-refreshes every registered player at once, with a running ✅ / ❌ / ⏳ progress display (plus how stale each player's underlying data actually is) so a single failed lookup is visible without derailing the rest. The same refresh also runs automatically every hour, on the hour, for both boards.
+- All of it is **self-healing** — delete a leaderboard message, its progress message, or the whole channel, and the next interaction quietly rebuilds whatever's missing.
+- **`/stats [user]`** posts an Arena stat card — rank, win rate, top placement rate, average placing/KDA, streaks, most-played champions, and recent match history — to an auto-created **`#arena-stats`** channel. Cards (and any chat sent alongside them) are swept away in the background 5 minutes after the most recent card, keeping the channel tidy without banning conversation.
 
 ## Why this is a bit more interesting than "wraps an API"
 
@@ -27,6 +28,12 @@ arenasweats.lol has no public API — it's a hobbyist's site with no rate-limit 
   - A leaderboard row starting with `4. Name` gets silently parsed as Markdown's ordered-list syntax, giving that row different line spacing than everything else in the same field.
   - True ephemeral ("only you can see this") messages only exist for interaction responses (slash commands, buttons) — a plain message send has no way to reply privately, which shaped how the auto-moderation notices work.
 
+Riot's API (`src/riotApi.js`) is the opposite situation — documented, authenticated, officially rate-limited — but that brought its own set of decisions:
+
+- **A Riot ID resolves to a PUUID once, permanently.** `GET /riot/account/v1/accounts/by-riot-id` and `GET /lol/league/v4/entries/by-puuid` are two separate calls on two separate routing hosts (regional vs. platform), but a PUUID never changes for a given Riot ID — so it's resolved once and cached on the player's own row, cutting Riot API traffic roughly in half on every subsequent refresh.
+- **Sorting isn't a flat number compare.** Arena's rating is a single MMR-like value, always comparable. Solo Queue rank is tier + division + LP, and LP resets at every promotion — Diamond III with 5 LP still outranks Diamond IV with 90 LP — so the leaderboard sorts on a composite (tier, division, LP) score instead.
+- **The tier icons are reused, not re-uploaded.** Arena and Solo Queue share the exact same tier names (Iron through Challenger) since they're the same underlying ranked system — the icons already uploaded for the Arena leaderboard (see Setup) work here too.
+
 None of this needs to be bulletproof — it's a bot for one Discord server — but building it to *behave* politely and recover gracefully was more interesting than the alternative.
 
 ## Tech stack
@@ -37,6 +44,7 @@ Node.js · [discord.js](https://discord.js.org/) v14 · SQLite via Node's built-
 
 - [Node.js](https://nodejs.org/) 22.5 or later (built-in `fetch` and `node:sqlite`)
 - A Discord application/bot — create one at the [Discord Developer Portal](https://discord.com/developers/applications)
+- A Riot Games **Personal API key** — create one at the [Riot Developer Portal](https://developer.riotgames.com) (see Setup step 4 for why it has to be this specific key type)
 
 ## Setup
 
@@ -65,6 +73,8 @@ Node.js · [discord.js](https://discord.js.org/) v14 · SQLite via Node's built-
    - `CLIENT_ID` — your application's client ID
    - `GUILD_ID` — local development convenience only: set it to a test server's ID so slash commands you're actively changing register there instantly. Leave it blank (the production/shared default) to register commands globally, so anyone can invite the bot and use them — allow up to an hour for global registration to propagate. Don't leave stale guild-scoped commands registered alongside global ones, or they'll show up as duplicates in that one server (see `deploy-commands.js` — re-running with `GUILD_ID` blank does not remove a previous guild-scoped registration; that needs an explicit empty `PUT` to the guild commands route).
    - `REQUEST_DELAY_MS` — tune rate-limiting behavior if needed; the default is sensible.
+   - `RIOT_API_KEY` — from the [Riot Developer Portal](https://developer.riotgames.com), register an app and generate a **Personal API key** (free, no approval process, and it never expires). Don't use the "development key" shown on the portal homepage instead — that one expires every 24 hours and would silently break `#soloq-leaderboard` daily.
+   - `RIOT_REQUEST_DELAY_MS` — tune Riot API rate-limiting behavior if needed; the default is sensible.
 
 5. **Register slash commands**
    ```
@@ -98,7 +108,7 @@ Registers your Riot ID for future lookups.
 ```
 /setign riot_id:PlayerOne#EUW1 region:EUW
 ```
-Supported regions: `OCE, NA, EUW, ME, EUNE, KR, JP, BR, LAS, LAN, RU, TR, SEA, TW, VN`.
+Supported regions: `OCE, NA, EUW, ME, EUNE, KR, JP, BR, LAS, LAN, RU, TR, SEA, TW, VN`. These are arenasweats.lol's own region names, mapped internally (`src/config.js`'s `REGION_TO_RIOT`) to Riot's platform/regional routing for the Solo Queue lookups — every value maps 1:1 except `SEA`, which Riot splits into three (`sg2`/`th2`/`ph2`) with no way to tell from the region name alone which one a given player is on; it defaults to `sg2` (Singapore).
 
 **`#arena-leaderboard`**
 Created automatically the first time someone runs `/setign` in a server, with three bot-managed messages:
@@ -110,6 +120,11 @@ Created automatically the first time someone runs `/setign` in a server, with th
 Each message is self-healing independently — if any of them (or the whole channel) is deleted, the next `/setign` or Update click recreates whatever's missing. The one exception is ordering: the info message is only guaranteed to be *first* when the channel itself is freshly created — if it's individually deleted and recreated later, Discord has no way to move it back above messages that already exist.
 
 The channel is created with default (not locked-down) permissions — anyone can technically post there — but the bot actively deletes any message in that channel that isn't its own (with a self-deleting notice to whoever posted it), and the Update button also sweeps recent channel history as a backstop for anything that slips through.
+
+**`#soloq-leaderboard`**
+The Solo/Duo counterpart to `#arena-leaderboard` — same three-message structure (info message, leaderboard, update-progress log), same self-healing behavior, same message-lockdown behavior, same Update button with its own independent 5-minute cooldown, folded into the same hourly auto-refresh alongside the Arena board. Everyone who's run `/setign` shows up here automatically — there's no separate registration.
+
+The one real difference is what the columns mean: there's no Riot equivalent to arenasweats' global ladder-position number, so the Rank column is just tier + division (e.g. "💎 Diamond I", "🏆 Challenger" with no division for Master and above), and Rating shows League Points (`78 LP`) instead of a flat MMR-style number. Sorting accounts for LP resetting at each promotion (tier, then division, then LP — not LP alone).
 
 **`/stats [user:<@member>]`**
 Posts a stat card for yourself, or for another registered member if you pass `user`.
@@ -131,7 +146,7 @@ The bot is a stateful, always-on process (it holds a persistent Discord gateway 
 3. **Set environment variables** on the service (same names as `.env.example`, plus one addition):
    - `DISCORD_TOKEN`, `CLIENT_ID`
    - `GUILD_ID` — leave blank for a production deployment; global command registration's propagation delay doesn't matter for a service that just stays running
-   - `REQUEST_DELAY_MS` — same as local
+   - `REQUEST_DELAY_MS`, `RIOT_API_KEY`, `RIOT_REQUEST_DELAY_MS` — same as local
    - `DB_PATH=/data/bot.sqlite3` — points the app at the mounted Volume instead of the local dev path
 4. **Deploy**, then check the logs for `Logged in as <botname>` to confirm it connected.
 5. **Register slash commands**: this only needs to be re-run when the command *definitions* change (not on every deploy). Do it from any machine with the bot's `DISCORD_TOKEN`/`CLIENT_ID` — Railway's one-off command runner (Shell tab, or `railway run node src/deploy-commands.js`) or locally both work identically, since registration talks to Discord's API directly and doesn't depend on where the bot process itself is running. Leave `GUILD_ID` blank wherever you run it from, so commands stay global.
@@ -152,10 +167,12 @@ scripts/
 src/
 ├── index.js              # bot bootstrap, interaction routing, moderation
 ├── deploy-commands.js     # registers slash commands with Discord
-├── config.js              # env loading and constants
+├── config.js              # env loading and constants (incl. Riot region routing map)
 ├── db.js                  # SQLite schema + queries (node:sqlite)
 ├── arenaSweats.js         # arenasweats.lol API client, caching, request queue
+├── riotApi.js             # Riot Games API client, puuid resolution, caching, request queue
 ├── leaderboard.js         # per-guild #arena-leaderboard channel management
+├── soloqLeaderboard.js    # per-guild #soloq-leaderboard channel management
 ├── stats.js               # per-guild #arena-stats channel + stat card building
 ├── rankEmojis.js          # generated by upload-rank-emojis.js — tier -> emoji mention
 ├── placementEmojis.js     # generated by upload-placement-emojis.js — placement -> emoji mention

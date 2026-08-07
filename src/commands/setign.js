@@ -2,12 +2,14 @@ const { SlashCommandBuilder, EmbedBuilder, MessageFlags } = require('discord.js'
 const { REGIONS } = require('../config');
 const { upsertPlayer, addGuildLeaderboardMember } = require('../db');
 const { getPlayerRank } = require('../arenaSweats');
+const { getPlayerSoloRank } = require('../riotApi');
 const { refreshGuildLeaderboard } = require('../leaderboard');
 const { ensureStatsChannel } = require('../stats');
+const { refreshGuildSoloqLeaderboard } = require('../soloqLeaderboard');
 
 const data = new SlashCommandBuilder()
   .setName('setign')
-  .setDescription('Register your Riot ID and region for Arena rank lookups')
+  .setDescription('Register your Riot ID and region for Arena and Solo Queue rank lookups')
   .addStringOption((option) =>
     option
       .setName('riot_id')
@@ -54,7 +56,7 @@ async function execute(interaction) {
     .setColor(0x2ecc71)
     .setTitle('Riot ID registered')
     .setDescription(`\`${riotName}#${riotTag}\` (${region}) is now linked to your Discord account.`)
-    .setFooter({ text: 'Check #arena-leaderboard anytime to see your current Arena rating.' });
+    .setFooter({ text: 'Check #arena-leaderboard or #soloq-leaderboard anytime to see your current rating.' });
 
   if (interaction.guild) {
     // Best-effort: seed the cache so the leaderboard doesn't show this entry as pending.
@@ -70,6 +72,14 @@ async function execute(interaction) {
       await ensureStatsChannel(interaction.guild);
     } catch (err) {
       embed.addFields({ name: 'Stats channel', value: `Couldn't create #arena-stats (${err.message}).` });
+    }
+
+    // Best-effort: seed the cache so the Solo Queue leaderboard doesn't show this entry as pending.
+    await getPlayerSoloRank(interaction.user.id, riotName, riotTag, region).catch(() => {});
+
+    const soloqWarning = await refreshGuildSoloqLeaderboard(interaction.guild);
+    if (soloqWarning) {
+      embed.addFields({ name: 'Solo Queue leaderboard', value: soloqWarning });
     }
   }
 

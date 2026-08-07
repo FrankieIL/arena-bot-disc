@@ -1,6 +1,6 @@
 const { Client, GatewayIntentBits, Collection, MessageFlags } = require('discord.js');
 const { DISCORD_TOKEN } = require('./config');
-const { getGuildLeaderboardMeta, getGuildStatsChannel } = require('./db');
+const { getGuildLeaderboardMeta, getGuildStatsChannel, getGuildSoloqLeaderboardMeta } = require('./db');
 const setign = require('./commands/setign');
 const stats = require('./commands/stats');
 const {
@@ -11,6 +11,14 @@ const {
   REFRESH_BUTTON_ID,
   VIEW_UPDATE_DATA_BUTTON_ID,
 } = require('./leaderboard');
+const {
+  refreshGuildSoloqLeaderboardLive,
+  getSoloqLiveRefreshCooldownRemainingMs,
+  expandSoloqUpdateLog,
+  getSoloqUpdateLogCollapseRemainingMs,
+  SOLOQ_REFRESH_BUTTON_ID,
+  SOLOQ_VIEW_UPDATE_DATA_BUTTON_ID,
+} = require('./soloqLeaderboard');
 const { trackStrayMessage } = require('./stats');
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
@@ -35,6 +43,11 @@ async function runAutoUpdate() {
       await refreshGuildLeaderboardLive(guild);
     } catch (err) {
       console.error(`Error auto-updating leaderboard for guild ${guild.id}:`, err);
+    }
+    try {
+      await refreshGuildSoloqLeaderboardLive(guild);
+    } catch (err) {
+      console.error(`Error auto-updating Solo Queue leaderboard for guild ${guild.id}:`, err);
     }
   }
 }
@@ -109,6 +122,47 @@ client.on('interactionCreate', async (interaction) => {
     } catch (err) {
       console.error('Error handling view-update-data button:', err);
     }
+    return;
+  }
+
+  if (interaction.isButton() && interaction.customId === SOLOQ_REFRESH_BUTTON_ID) {
+    try {
+      const cooldownMs = getSoloqLiveRefreshCooldownRemainingMs(interaction.guildId);
+      if (cooldownMs > 0) {
+        await interaction.reply({
+          content: '⏳ Updates have a 5 minute cooldown.',
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
+      await interaction.deferUpdate();
+      const warning = await refreshGuildSoloqLeaderboardLive(interaction.guild);
+      if (warning) {
+        await interaction.followUp({ content: warning, flags: MessageFlags.Ephemeral }).catch(() => {});
+      }
+    } catch (err) {
+      console.error('Error handling Solo Queue leaderboard refresh button:', err);
+    }
+    return;
+  }
+
+  if (interaction.isButton() && interaction.customId === SOLOQ_VIEW_UPDATE_DATA_BUTTON_ID) {
+    try {
+      const cooldownMs = getSoloqUpdateLogCollapseRemainingMs(interaction.guildId);
+      if (cooldownMs > 0) {
+        await interaction.reply({
+          content: '⏳ Data is currently showing.',
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
+      await interaction.deferUpdate();
+      await expandSoloqUpdateLog(interaction.guild);
+    } catch (err) {
+      console.error('Error handling Solo Queue view-update-data button:', err);
+    }
   }
 });
 
@@ -117,6 +171,21 @@ client.on('messageCreate', async (message) => {
 
   const leaderboardMeta = getGuildLeaderboardMeta(message.guild.id);
   if (leaderboardMeta && message.channel.id === leaderboardMeta.channelId) {
+    await message.delete().catch(() => {});
+
+    const notice = await message.channel.send({
+      content: `⚠️ ${message.author}, this channel is for the leaderboard only — your message was removed.`,
+      allowedMentions: { users: [message.author.id] },
+    }).catch(() => null);
+
+    if (notice) {
+      setTimeout(() => notice.delete().catch(() => {}), STRAY_MESSAGE_NOTICE_LIFETIME_MS);
+    }
+    return;
+  }
+
+  const soloqMeta = getGuildSoloqLeaderboardMeta(message.guild.id);
+  if (soloqMeta && message.channel.id === soloqMeta.channelId) {
     await message.delete().catch(() => {});
 
     const notice = await message.channel.send({

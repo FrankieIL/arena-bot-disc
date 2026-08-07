@@ -42,6 +42,22 @@ db.exec(`
     info_message_id TEXT,
     updated_at      TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS solo_rank_cache (
+    riot_name  TEXT NOT NULL,
+    riot_tag   TEXT NOT NULL,
+    region     TEXT NOT NULL,
+    payload    TEXT NOT NULL,
+    fetched_at TEXT NOT NULL,
+    PRIMARY KEY (riot_name, riot_tag, region)
+  );
+
+  CREATE TABLE IF NOT EXISTS guild_soloq_leaderboards (
+    guild_id   TEXT PRIMARY KEY,
+    channel_id TEXT NOT NULL,
+    message_id TEXT,
+    updated_at TEXT NOT NULL
+  );
 `);
 
 // Migrate columns added after the table already existed on deployed volumes —
@@ -54,7 +70,13 @@ function ensureColumn(table, column, type) {
 }
 ensureColumn('guild_leaderboards', 'update_log_message_id', 'TEXT');
 ensureColumn('guild_leaderboards', 'info_message_id', 'TEXT');
+ensureColumn('guild_soloq_leaderboards', 'update_log_message_id', 'TEXT');
+ensureColumn('guild_soloq_leaderboards', 'info_message_id', 'TEXT');
+ensureColumn('players', 'puuid', 'TEXT');
 
+// puuid is reset on every re-registration (not just insert) since a stale
+// cached puuid from a previous Riot ID would silently resolve to the wrong
+// League account.
 const upsertPlayerStmt = db.prepare(`
   INSERT INTO players (discord_id, riot_name, riot_tag, region, updated_at)
   VALUES (@discord_id, @riot_name, @riot_tag, @region, @updated_at)
@@ -62,7 +84,8 @@ const upsertPlayerStmt = db.prepare(`
     riot_name = excluded.riot_name,
     riot_tag = excluded.riot_tag,
     region = excluded.region,
-    updated_at = excluded.updated_at
+    updated_at = excluded.updated_at,
+    puuid = NULL
 `);
 
 const getCacheStmt = db.prepare(`
@@ -76,6 +99,23 @@ const upsertCacheStmt = db.prepare(`
   ON CONFLICT(riot_name, riot_tag, region) DO UPDATE SET
     payload = excluded.payload,
     fetched_at = excluded.fetched_at
+`);
+
+const getSoloCacheStmt = db.prepare(`
+  SELECT payload, fetched_at FROM solo_rank_cache
+  WHERE riot_name = ? AND riot_tag = ? AND region = ?
+`);
+
+const upsertSoloCacheStmt = db.prepare(`
+  INSERT INTO solo_rank_cache (riot_name, riot_tag, region, payload, fetched_at)
+  VALUES (@riot_name, @riot_tag, @region, @payload, @fetched_at)
+  ON CONFLICT(riot_name, riot_tag, region) DO UPDATE SET
+    payload = excluded.payload,
+    fetched_at = excluded.fetched_at
+`);
+
+const setPlayerPuuidStmt = db.prepare(`
+  UPDATE players SET puuid = @puuid WHERE discord_id = @discord_id
 `);
 
 const addGuildLeaderboardMemberStmt = db.prepare(`
@@ -96,7 +136,18 @@ const getGuildLeaderboardRowsStmt = db.prepare(`
 `);
 
 const getPlayerStmt = db.prepare(`
-  SELECT riot_name, riot_tag, region FROM players WHERE discord_id = ?
+  SELECT riot_name, riot_tag, region, puuid FROM players WHERE discord_id = ?
+`);
+
+const getGuildSoloqLeaderboardRowsStmt = db.prepare(`
+  SELECT glm.discord_id, p.riot_name, p.riot_tag, p.region, sc.payload
+  FROM guild_leaderboard_members glm
+  JOIN players p ON p.discord_id = glm.discord_id
+  LEFT JOIN solo_rank_cache sc
+    ON sc.riot_name = LOWER(p.riot_name)
+    AND sc.riot_tag = LOWER(p.riot_tag)
+    AND sc.region = LOWER(p.region)
+  WHERE glm.guild_id = ?
 `);
 
 const getGuildStatsChannelStmt = db.prepare(`
@@ -136,6 +187,27 @@ const setInfoMessageStmt = db.prepare(`
   UPDATE guild_leaderboards SET info_message_id = @message_id WHERE guild_id = @guild_id
 `);
 
+const getGuildSoloqLeaderboardMetaStmt = db.prepare(`
+  SELECT channel_id, message_id, update_log_message_id, info_message_id FROM guild_soloq_leaderboards WHERE guild_id = ?
+`);
+
+const upsertGuildSoloqLeaderboardMetaStmt = db.prepare(`
+  INSERT INTO guild_soloq_leaderboards (guild_id, channel_id, message_id, updated_at)
+  VALUES (@guild_id, @channel_id, @message_id, @updated_at)
+  ON CONFLICT(guild_id) DO UPDATE SET
+    channel_id = excluded.channel_id,
+    message_id = excluded.message_id,
+    updated_at = excluded.updated_at
+`);
+
+const setSoloqUpdateLogMessageStmt = db.prepare(`
+  UPDATE guild_soloq_leaderboards SET update_log_message_id = @message_id WHERE guild_id = @guild_id
+`);
+
+const setSoloqInfoMessageStmt = db.prepare(`
+  UPDATE guild_soloq_leaderboards SET info_message_id = @message_id WHERE guild_id = @guild_id
+`);
+
 function upsertPlayer({ discordId, riotName, riotTag, region }) {
   upsertPlayerStmt.run({
     discord_id: discordId,
@@ -149,7 +221,11 @@ function upsertPlayer({ discordId, riotName, riotTag, region }) {
 function getPlayer(discordId) {
   const row = getPlayerStmt.get(discordId);
   if (!row) return null;
-  return { riotName: row.riot_name, riotTag: row.riot_tag, region: row.region };
+  return { riotName: row.riot_name, riotTag: row.riot_tag, region: row.region, puuid: row.puuid };
+}
+
+function setPlayerPuuid(discordId, puuid) {
+  setPlayerPuuidStmt.run({ discord_id: discordId, puuid });
 }
 
 function getCachedRank(riotName, riotTag, region) {
@@ -168,6 +244,22 @@ function setCachedRank(riotName, riotTag, region, payload) {
   });
 }
 
+function getCachedSoloRank(riotName, riotTag, region) {
+  const row = getSoloCacheStmt.get(riotName, riotTag, region);
+  if (!row) return null;
+  return { payload: JSON.parse(row.payload), fetchedAt: row.fetched_at };
+}
+
+function setCachedSoloRank(riotName, riotTag, region, payload) {
+  upsertSoloCacheStmt.run({
+    riot_name: riotName,
+    riot_tag: riotTag,
+    region,
+    payload: JSON.stringify(payload),
+    fetched_at: new Date().toISOString(),
+  });
+}
+
 function addGuildLeaderboardMember(guildId, discordId) {
   addGuildLeaderboardMemberStmt.run({
     guild_id: guildId,
@@ -178,6 +270,16 @@ function addGuildLeaderboardMember(guildId, discordId) {
 
 function getGuildLeaderboardRows(guildId) {
   return getGuildLeaderboardRowsStmt.all(guildId).map((row) => ({
+    discordId: row.discord_id,
+    riotName: row.riot_name,
+    riotTag: row.riot_tag,
+    region: row.region,
+    payload: row.payload ? JSON.parse(row.payload) : null,
+  }));
+}
+
+function getGuildSoloqLeaderboardRows(guildId) {
+  return getGuildSoloqLeaderboardRowsStmt.all(guildId).map((row) => ({
     discordId: row.discord_id,
     riotName: row.riot_name,
     riotTag: row.riot_tag,
@@ -233,11 +335,42 @@ function setGuildStatsInfoMessage(guildId, messageId) {
   setGuildStatsInfoMessageStmt.run({ guild_id: guildId, message_id: messageId });
 }
 
+function getGuildSoloqLeaderboardMeta(guildId) {
+  const row = getGuildSoloqLeaderboardMetaStmt.get(guildId);
+  if (!row) return null;
+  return {
+    channelId: row.channel_id,
+    messageId: row.message_id,
+    updateLogMessageId: row.update_log_message_id,
+    infoMessageId: row.info_message_id,
+  };
+}
+
+function setGuildSoloqLeaderboardMeta(guildId, channelId, messageId) {
+  upsertGuildSoloqLeaderboardMetaStmt.run({
+    guild_id: guildId,
+    channel_id: channelId,
+    message_id: messageId,
+    updated_at: new Date().toISOString(),
+  });
+}
+
+function setGuildSoloqUpdateLogMessage(guildId, messageId) {
+  setSoloqUpdateLogMessageStmt.run({ guild_id: guildId, message_id: messageId });
+}
+
+function setGuildSoloqInfoMessage(guildId, messageId) {
+  setSoloqInfoMessageStmt.run({ guild_id: guildId, message_id: messageId });
+}
+
 module.exports = {
   upsertPlayer,
   getPlayer,
+  setPlayerPuuid,
   getCachedRank,
   setCachedRank,
+  getCachedSoloRank,
+  setCachedSoloRank,
   addGuildLeaderboardMember,
   getGuildLeaderboardRows,
   getGuildLeaderboardMeta,
@@ -247,4 +380,9 @@ module.exports = {
   getGuildStatsChannel,
   setGuildStatsChannel,
   setGuildStatsInfoMessage,
+  getGuildSoloqLeaderboardRows,
+  getGuildSoloqLeaderboardMeta,
+  setGuildSoloqLeaderboardMeta,
+  setGuildSoloqUpdateLogMessage,
+  setGuildSoloqInfoMessage,
 };
