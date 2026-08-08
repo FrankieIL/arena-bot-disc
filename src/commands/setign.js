@@ -6,6 +6,7 @@ const { getPlayerSoloRank } = require('../riotApi');
 const { refreshGuildLeaderboard } = require('../leaderboard');
 const { ensureStatsChannel } = require('../stats');
 const { refreshGuildSoloqLeaderboard } = require('../soloqLeaderboard');
+const { scheduleEphemeralDismiss } = require('../interactions');
 
 const data = new SlashCommandBuilder()
   .setName('setign')
@@ -37,6 +38,7 @@ async function execute(interaction) {
       content: 'That doesn\'t look like a valid Riot ID. Use the format `Name#Tag`, e.g. `PlayerOne#EUW1`.',
       flags: MessageFlags.Ephemeral,
     });
+    scheduleEphemeralDismiss(interaction);
     return;
   }
 
@@ -84,6 +86,7 @@ async function execute(interaction) {
   }
 
   await interaction.editReply({ embeds: [embed] });
+  scheduleEphemeralDismiss(interaction);
 }
 
 module.exports = { data, execute };

@@ -1,4 +1,4 @@
-const { EmbedBuilder, ChannelType } = require('discord.js');
+const { EmbedBuilder, ChannelType, MessageFlags } = require('discord.js');
 const {
   getPlayer,
   getGuildStatsChannel,
@@ -40,6 +40,18 @@ function formatRegionRank(payload) {
   const rank = payload.player_rank;
   if (rank == null) return '—';
   return `#${rank.toLocaleString()}`;
+}
+
+/**
+ * How stale the underlying Arena Sweats data is — not when we fetched it,
+ * but when arenasweats.lol itself last had something to sync (ratings only
+ * move when a game finishes), same signal and same local-copy rationale as
+ * leaderboard.js's own formatDataAge.
+ */
+function formatDataAge(payload) {
+  const timestamp = payload?.last_game_timestamp ? Date.parse(payload.last_game_timestamp) : NaN;
+  if (Number.isNaN(timestamp)) return null;
+  return `<t:${Math.floor(timestamp / 1000)}:R>`;
 }
 
 function formatWinRate(payload) {
@@ -235,6 +247,16 @@ function buildStatsEmbed(riotName, riotTag, region, rankPayload, topChamps, matc
     )
     .setFooter({ text: region.toUpperCase() });
 
+  const dataAge = formatDataAge(rankPayload);
+  if (dataAge) {
+    // Zero-width-space field name so this reads as a footer-style caption
+    // rather than a labeled stat — same trick leaderboard.js's update log
+    // uses for its own "-# Last update took Xs" line. A footer can't be used
+    // instead since Discord doesn't parse markdown (including timestamp
+    // tags) inside embed footers.
+    embed.addFields({ name: '​', value: `-# Synced ${dataAge}`, inline: false });
+  }
+
   return embed;
 }
 
@@ -262,7 +284,10 @@ async function postPlayerStats(guild, targetDiscordId) {
 
   const channel = await ensureStatsChannel(guild);
   const embed = buildStatsEmbed(riotName, riotTag, region, rankPayload, topChamps, matches);
-  const message = await channel.send({ embeds: [embed] });
+  // Suppresses push/desktop notifications for this card (Discord's "@silent")
+  // — someone checking their own stats shouldn't buzz everyone else's phone.
+  // The message still posts and still shows as unread, just without the ping.
+  const message = await channel.send({ embeds: [embed], flags: MessageFlags.SuppressNotifications });
   scheduleChannelCleanup(channel, message.id);
 
   return { jumpLink: message.url };

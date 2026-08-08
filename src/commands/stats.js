@@ -2,6 +2,7 @@ const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const { postPlayerStats, PlayerNotRegisteredError, PlayerNotFoundError } = require('../stats');
 const { ArenaSweatsUnavailableError } = require('../arenaSweats');
 const { getGuildStatsChannel } = require('../db');
+const { scheduleEphemeralDismiss } = require('../interactions');
 
 const data = new SlashCommandBuilder()
   .setName('stats')
@@ -19,6 +20,7 @@ async function execute(interaction) {
       content: 'This command only works in a server.',
       flags: MessageFlags.Ephemeral,
     });
+    scheduleEphemeralDismiss(interaction);
     return;
   }
 
@@ -33,6 +35,7 @@ async function execute(interaction) {
       content: "The stats channel hasn't been set up yet — ask someone to run `/setign` first.",
       flags: MessageFlags.Ephemeral,
     });
+    scheduleEphemeralDismiss(interaction);
     return;
   }
 
@@ -41,6 +44,7 @@ async function execute(interaction) {
       content: `Please use this command in ${statsChannel}.`,
       flags: MessageFlags.Ephemeral,
     });
+    scheduleEphemeralDismiss(interaction);
     return;
   }
 
@@ -60,23 +64,29 @@ async function execute(interaction) {
         ? "You haven't registered yet — run `/setign` first."
         : "That user hasn't registered yet — tell them to run `/setign`.";
       await interaction.editReply({ content });
+      scheduleEphemeralDismiss(interaction);
       return;
     }
     if (err instanceof PlayerNotFoundError) {
       await interaction.editReply({
         content: "Arena Sweats doesn't have any data for that player yet.",
       });
+      scheduleEphemeralDismiss(interaction);
       return;
     }
     if (err instanceof ArenaSweatsUnavailableError) {
       await interaction.editReply({
         content: "Couldn't fetch stats right now — Arena Sweats might be down. Try again shortly.",
       });
+      scheduleEphemeralDismiss(interaction);
       return;
     }
     console.error('Error handling /stats:', err);
     await interaction.editReply({ content: 'Something went wrong fetching those stats.' });
+    scheduleEphemeralDismiss(interaction);
+    return;
   }
+  scheduleEphemeralDismiss(interaction);
 }
 
 module.exports = { data, execute };

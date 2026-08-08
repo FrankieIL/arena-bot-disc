@@ -21,6 +21,7 @@ const {
 } = require('./soloqLeaderboard');
 const { trackStrayMessage } = require('./stats');
 const { refreshSeasonLabel } = require('./arenaSweats');
+const { scheduleEphemeralDismiss, scheduleFollowUpDismiss } = require('./interactions');
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
 
@@ -84,6 +85,7 @@ client.on('interactionCreate', async (interaction) => {
       } else {
         await interaction.reply({ content, flags: MessageFlags.Ephemeral }).catch(() => {});
       }
+      scheduleEphemeralDismiss(interaction);
     }
     return;
   }
@@ -96,13 +98,15 @@ client.on('interactionCreate', async (interaction) => {
           content: '⏳ Updates have a 5 minute cooldown.',
           flags: MessageFlags.Ephemeral,
         });
+        scheduleEphemeralDismiss(interaction);
         return;
       }
 
       await interaction.deferUpdate();
       const warning = await refreshGuildLeaderboardLive(interaction.guild);
       if (warning) {
-        await interaction.followUp({ content: warning, flags: MessageFlags.Ephemeral }).catch(() => {});
+        const warningMessage = await interaction.followUp({ content: warning, flags: MessageFlags.Ephemeral }).catch(() => null);
+        if (warningMessage) scheduleFollowUpDismiss(interaction, warningMessage);
       }
     } catch (err) {
       console.error('Error handling leaderboard refresh button:', err);
@@ -118,6 +122,7 @@ client.on('interactionCreate', async (interaction) => {
           content: '⏳ Data is currently showing.',
           flags: MessageFlags.Ephemeral,
         });
+        scheduleEphemeralDismiss(interaction);
         return;
       }
 
@@ -137,13 +142,15 @@ client.on('interactionCreate', async (interaction) => {
           content: '⏳ Updates have a 5 minute cooldown.',
           flags: MessageFlags.Ephemeral,
         });
+        scheduleEphemeralDismiss(interaction);
         return;
       }
 
       await interaction.deferUpdate();
       const warning = await refreshGuildSoloqLeaderboardLive(interaction.guild);
       if (warning) {
-        await interaction.followUp({ content: warning, flags: MessageFlags.Ephemeral }).catch(() => {});
+        const warningMessage = await interaction.followUp({ content: warning, flags: MessageFlags.Ephemeral }).catch(() => null);
+        if (warningMessage) scheduleFollowUpDismiss(interaction, warningMessage);
       }
     } catch (err) {
       console.error('Error handling Solo Queue leaderboard refresh button:', err);
@@ -159,6 +166,7 @@ client.on('interactionCreate', async (interaction) => {
           content: '⏳ Data is currently showing.',
           flags: MessageFlags.Ephemeral,
         });
+        scheduleEphemeralDismiss(interaction);
         return;
       }
 
