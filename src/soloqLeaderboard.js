@@ -13,6 +13,11 @@ const {
   setGuildSoloqInfoMessage,
 } = require('./db');
 const { getPlayerSoloRank } = require('./riotApi');
+// Riot's API has no season concept at all — Arena and Solo Queue are the
+// same real-world League ranked season, so this leaderboard borrows
+// arenaSweats.js's scraped season label (see refreshSeasonLabel there)
+// rather than needing its own separate source.
+const { refreshSeasonLabel, getCachedSeasonLabel } = require('./arenaSweats');
 const RANK_EMOJIS = require('./rankEmojis');
 
 const CHANNEL_NAME = 'soloq-leaderboard';
@@ -87,15 +92,19 @@ function formatServerPosition(index) {
 }
 
 /**
- * `{icon} Tier Division` (e.g. "💎 Diamond I"), just the tier name for
- * apex tiers (no division), or "Unranked" if the account has no Solo Queue
- * entry at all.
+ * `{icon} Tier Division` (e.g. "💎 Diamond I"), or `{icon} Tier (#N)` for
+ * apex tiers with a known ladder position (e.g. "🏆 Challenger (#12)") — a
+ * true EUW-wide ladder position only exists for Master+ (see riotApi.js's
+ * getApexLadderPosition), so it's just omitted below that rather than shown
+ * as a dash. "Unranked" if the account has no Solo Queue entry at all.
  */
 function formatTier(payload) {
   if (!payload?.tier) return 'Unranked';
   const tierKey = payload.tier.toLowerCase();
   const tierText = payload.tier.charAt(0) + payload.tier.slice(1).toLowerCase();
-  const label = APEX_TIERS.has(tierKey) ? tierText : `${tierText} ${payload.division ?? ''}`.trim();
+  const label = APEX_TIERS.has(tierKey)
+    ? (payload.ladderPosition ? `${tierText} (#${payload.ladderPosition.toLocaleString()})` : tierText)
+    : `${tierText} ${payload.division ?? ''}`.trim();
   const icon = RANK_EMOJIS[tierKey];
   return icon ? `${icon} ${label}` : label;
 }
@@ -104,12 +113,12 @@ function formatRating(payload) {
   return `${payload.leaguePoints ?? 0} LP`;
 }
 
-function buildLeaderboardEmbed(rows) {
+function buildLeaderboardEmbed(rows, seasonLabel) {
   const { ranked, pending, all } = sortSoloqRows(rows);
 
   const embed = new EmbedBuilder()
     .setColor(EMBED_COLOR)
-    .setTitle('🛡️ Solo Queue Leaderboard')
+    .setTitle(seasonLabel ? `🛡️ Solo Queue Leaderboard — ${seasonLabel}` : '🛡️ Solo Queue Leaderboard')
     .setFooter({ text: `${rows.length} player${rows.length === 1 ? '' : 's'} registered` });
 
   if (all.length === 0) {
@@ -131,7 +140,7 @@ function buildLeaderboardEmbed(rows) {
   embed.addFields(
     { name: 'Players', value: nameLines.join('\n'), inline: true },
     { name: 'Rank', value: rankLines.join('\n'), inline: true },
-    { name: 'Rating', value: ratingLines.join('\n'), inline: true },
+    { name: 'League Points', value: ratingLines.join('\n'), inline: true },
   );
 
   return embed;
@@ -258,7 +267,7 @@ async function ensureSoloqLeaderboardChannel(guild) {
 
 async function drawLeaderboardMessage(guild, channel, messageId) {
   const rows = getGuildSoloqLeaderboardRows(guild.id);
-  const embed = buildLeaderboardEmbed(rows);
+  const embed = buildLeaderboardEmbed(rows, getCachedSeasonLabel());
   const components = [refreshRow];
 
   const message = messageId
@@ -381,6 +390,8 @@ async function refreshGuildSoloqLeaderboardLive(guild) {
   try {
     const startedAt = Date.now();
     lastLiveRefreshAt.set(guild.id, startedAt);
+
+    await refreshSeasonLabel();
 
     const resolved = await ensureSoloqLeaderboardChannel(guild);
     const { channel } = resolved;

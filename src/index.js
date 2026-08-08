@@ -20,6 +20,7 @@ const {
   SOLOQ_VIEW_UPDATE_DATA_BUTTON_ID,
 } = require('./soloqLeaderboard');
 const { trackStrayMessage } = require('./stats');
+const { refreshSeasonLabel } = require('./arenaSweats');
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
 
@@ -62,6 +63,9 @@ function scheduleHourlyAutoUpdate() {
 
 client.once('clientReady', () => {
   console.log(`Logged in as ${client.user.tag}`);
+  // So leaderboard titles show the season immediately after a restart,
+  // instead of waiting for the first Update click or the next hourly tick.
+  refreshSeasonLabel();
   scheduleHourlyAutoUpdate();
 });
 

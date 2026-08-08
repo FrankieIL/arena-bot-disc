@@ -1,8 +1,10 @@
 const { REQUEST_DELAY_MS } = require('./config');
 const { getCachedRank, setCachedRank } = require('./db');
 
-const BASE_URL = 'https://arenasweats.lol/api';
+const SITE_URL = 'https://arenasweats.lol';
+const BASE_URL = `${SITE_URL}/api`;
 const SEASON = 'live';
+let seasonLabelCache = null; // last known-good label, set by refreshSeasonLabel()
 
 class PlayerNotFoundError extends Error {}
 class ArenaSweatsUnavailableError extends Error {}
@@ -45,6 +47,58 @@ async function fetchJson(url) {
   } catch (err) {
     throw new ArenaSweatsUnavailableError(`Unexpected response from arenasweats.lol: ${err.message}`);
   }
+}
+
+/**
+ * Neither arenasweats' JSON endpoints nor Riot's API expose a season name
+ * anywhere — but arenasweats.lol's own homepage server-renders the current
+ * season as plain markup (`<span class="season-year">2026</span><span
+ * class="season-number">3</span>`, confirmed live), so it's scraped from
+ * there instead. Arena and Solo Queue are the same real-world League ranked
+ * season, so this one value is reused for both leaderboards' titles rather
+ * than needing an equivalent for Riot's side too.
+ */
+function parseSeasonLabel(html) {
+  const year = /class="season-year">(\d+)</.exec(html)?.[1];
+  const number = /class="season-number">(\d+)</.exec(html)?.[1];
+  return year && number ? `${year} Season ${number}` : null;
+}
+
+/**
+ * Actually re-checks arenasweats.lol's homepage — called once per real
+ * leaderboard update (the Update button or the hourly auto-refresh, both of
+ * which funnel through refreshGuildLeaderboardLive/
+ * refreshGuildSoloqLeaderboardLive), not on every redraw. Those are already
+ * naturally rate-limited (5-minute button cooldown, hourly auto-tick), so no
+ * extra caching layer is needed on top — a season rollover is picked up
+ * automatically within one update cycle, no manual edits ever needed. A
+ * scrape failure (or arenasweats changing their markup) just keeps the last
+ * known-good label instead of failing the leaderboard render over it.
+ */
+async function refreshSeasonLabel() {
+  try {
+    const html = await enqueue(async () => {
+      const response = await fetch(SITE_URL);
+      if (!response.ok) {
+        throw new ArenaSweatsUnavailableError(`arenasweats.lol homepage returned HTTP ${response.status}`);
+      }
+      return response.text();
+    });
+
+    const label = parseSeasonLabel(html);
+    if (label) {
+      seasonLabelCache = label;
+    }
+  } catch {
+    // Keep whatever was last known-good (possibly nothing yet).
+  }
+
+  return seasonLabelCache;
+}
+
+/** Whatever refreshSeasonLabel last found, with no network cost — null before the very first successful refresh. */
+function getCachedSeasonLabel() {
+  return seasonLabelCache;
 }
 
 async function fetchLiveRank(riotName, riotTag, region) {
@@ -128,6 +182,8 @@ module.exports = {
   getPlayerRank,
   getPlayerTopChampions,
   getPlayerMatchHistory,
+  refreshSeasonLabel,
+  getCachedSeasonLabel,
   PlayerNotFoundError,
   ArenaSweatsUnavailableError,
 };

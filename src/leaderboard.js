@@ -12,7 +12,7 @@ const {
   setGuildUpdateLogMessage,
   setGuildInfoMessage,
 } = require('./db');
-const { getPlayerRank } = require('./arenaSweats');
+const { getPlayerRank, refreshSeasonLabel, getCachedSeasonLabel } = require('./arenaSweats');
 const RANK_EMOJIS = require('./rankEmojis');
 
 const CHANNEL_NAME = 'arena-leaderboard';
@@ -77,12 +77,12 @@ function sortLeaderboardRows(rows) {
   return { ranked, pending, all: [...ranked, ...pending] };
 }
 
-function buildLeaderboardEmbed(rows) {
+function buildLeaderboardEmbed(rows, seasonLabel) {
   const { ranked, pending, all } = sortLeaderboardRows(rows);
 
   const embed = new EmbedBuilder()
     .setColor(EMBED_COLOR)
-    .setTitle('🏆 Arena Leaderboard')
+    .setTitle(seasonLabel ? `🏆 Arena Leaderboard — ${seasonLabel}` : '🏆 Arena Leaderboard')
     .setFooter({ text: `${rows.length} player${rows.length === 1 ? '' : 's'} registered` });
 
   if (all.length === 0) {
@@ -331,7 +331,7 @@ async function ensureLeaderboardChannel(guild) {
 
 async function drawLeaderboardMessage(guild, channel, messageId) {
   const rows = getGuildLeaderboardRows(guild.id);
-  const embed = buildLeaderboardEmbed(rows);
+  const embed = buildLeaderboardEmbed(rows, getCachedSeasonLabel());
   const components = [refreshRow];
 
   const message = messageId
@@ -522,6 +522,8 @@ async function refreshGuildLeaderboardLive(guild) {
   try {
     const startedAt = Date.now();
     lastLiveRefreshAt.set(guild.id, startedAt);
+
+    await refreshSeasonLabel();
 
     const resolved = await ensureLeaderboardChannel(guild);
     const { channel } = resolved;

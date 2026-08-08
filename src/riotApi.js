@@ -2,6 +2,13 @@ const { RIOT_API_KEY, RIOT_REQUEST_DELAY_MS, REGION_TO_RIOT } = require('./confi
 const { getPlayer, setPlayerPuuid, getCachedSoloRank, setCachedSoloRank } = require('./db');
 
 const SOLO_QUEUE_TYPE = 'RANKED_SOLO_5x5';
+const APEX_TIERS = new Set(['MASTER', 'GRANDMASTER', 'CHALLENGER']);
+const APEX_BRACKETS = ['challengerleagues', 'grandmasterleagues', 'masterleagues'];
+// Master alone can run 10k+ entries on a large platform, so this is cached
+// per platform (not per player) and shared across every player/guild that
+// hits it within the window, rather than re-fetched on every single lookup.
+const APEX_LADDER_CACHE_MS = 10 * 60 * 1000;
+const apexLadderCache = new Map(); // platform -> { positions: Map<puuid, position>, fetchedAt }
 
 class RiotPlayerNotFoundError extends Error {}
 class RiotApiUnavailableError extends Error {}
@@ -85,6 +92,42 @@ async function resolvePuuid(discordId, riotName, riotTag, regional) {
   return puuid;
 }
 
+/**
+ * A true ladder position only exists for Master+ — below that, Riot only
+ * exposes one division-page at a time with no guaranteed order, so there's
+ * no feasible way to count a player's position. Master/Grandmaster/
+ * Challenger are tier *labels* Riot assigns by LP cutoff over the same
+ * underlying population, so concatenating all three brackets and sorting by
+ * LP descending gives a real, single ladder position across all of them —
+ * not just a position within one's own bracket.
+ */
+async function fetchApexLadder(platform) {
+  const brackets = await Promise.all(
+    APEX_BRACKETS.map((bracket) =>
+      fetchJson(`https://${platform}.api.riotgames.com/lol/league/v4/${bracket}/by-queue/${SOLO_QUEUE_TYPE}`),
+    ),
+  );
+
+  const sorted = brackets
+    .flatMap((bracket) => bracket.entries ?? [])
+    .sort((a, b) => b.leaguePoints - a.leaguePoints);
+
+  const positions = new Map();
+  sorted.forEach((entry, index) => positions.set(entry.puuid, index + 1));
+  return positions;
+}
+
+async function getApexLadderPosition(platform, puuid) {
+  const cached = apexLadderCache.get(platform);
+  if (cached && Date.now() - cached.fetchedAt < APEX_LADDER_CACHE_MS) {
+    return cached.positions.get(puuid) ?? null;
+  }
+
+  const positions = await fetchApexLadder(platform);
+  apexLadderCache.set(platform, { positions, fetchedAt: Date.now() });
+  return positions.get(puuid) ?? null;
+}
+
 async function fetchLiveSoloRank(discordId, riotName, riotTag, region) {
   const { platform, regional } = REGION_TO_RIOT[region];
   const puuid = await resolvePuuid(discordId, riotName, riotTag, regional);
@@ -95,7 +138,14 @@ async function fetchLiveSoloRank(discordId, riotName, riotTag, region) {
   const solo = entries.find((entry) => entry.queueType === SOLO_QUEUE_TYPE);
 
   if (!solo) {
-    return { tier: null, division: null, leaguePoints: 0, wins: 0, losses: 0 };
+    return { tier: null, division: null, leaguePoints: 0, wins: 0, losses: 0, ladderPosition: null };
+  }
+
+  // Best-effort: a failure computing ladder position shouldn't fail the
+  // whole lookup — the player's actual rank/LP/W-L is the load-bearing part.
+  let ladderPosition = null;
+  if (APEX_TIERS.has(solo.tier)) {
+    ladderPosition = await getApexLadderPosition(platform, puuid).catch(() => null);
   }
 
   return {
@@ -104,6 +154,7 @@ async function fetchLiveSoloRank(discordId, riotName, riotTag, region) {
     leaguePoints: solo.leaguePoints,
     wins: solo.wins,
     losses: solo.losses,
+    ladderPosition,
   };
 }
 
