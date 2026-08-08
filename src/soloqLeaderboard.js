@@ -20,7 +20,7 @@ const MEDALS = ['🥇', '🥈', '🥉'];
 const SOLOQ_REFRESH_BUTTON_ID = 'soloq_leaderboard_refresh';
 const SOLOQ_VIEW_UPDATE_DATA_BUTTON_ID = 'soloq_leaderboard_view_update_data';
 const STATUS_EMOJI = { success: '✅', failure: '❌', pending: '⏳' };
-const EMBED_COLOR = 0x9b59b6;
+const EMBED_COLOR = 0x16a085;
 
 // Ranked tiers in ascending order — same set (and the same uploaded icons,
 // via RANK_EMOJIS) as Arena mode, since League's tier system is shared
@@ -212,7 +212,7 @@ function buildCollapsedUpdateLogEmbed(rows, statuses, { finished, allFailed, com
 function buildInfoEmbed() {
   return new EmbedBuilder()
     .setColor(EMBED_COLOR)
-    .setTitle('ℹ️ Channel Info')
+    .setTitle('ℹ️ Leaderboard Information')
     .setDescription(
       [
         'Data is sourced directly from Riot Games\' official API — Solo/Duo ranked stats.',

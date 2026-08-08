@@ -59,7 +59,7 @@ function formatTopHalfRate(payload) {
 function buildInfoEmbed() {
   return new EmbedBuilder()
     .setColor(EMBED_COLOR)
-    .setTitle('ℹ️ Channel Info')
+    .setTitle('ℹ️ Channel Information')
     .setDescription(
       [
         'Run **`/stats`** in this channel to post your Arena stat card — win rate, top placement rate, recent matches, and most-played champions.',

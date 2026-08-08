@@ -20,7 +20,7 @@ const MEDALS = ['🥇', '🥈', '🥉'];
 const REFRESH_BUTTON_ID = 'leaderboard_refresh';
 const VIEW_UPDATE_DATA_BUTTON_ID = 'leaderboard_view_update_data';
 const STATUS_EMOJI = { success: '✅', failure: '❌', pending: '⏳' };
-const EMBED_COLOR = 0xe74c3c;
+const EMBED_COLOR = 0xd35400;
 
 // Update button cooldown: a click re-fetches every registered player live,
 // so this is the only thing standing between the button and hammering
@@ -270,7 +270,7 @@ function buildCollapsedUpdateLogEmbed(rows, statuses, { finished, allFailed, com
 function buildInfoEmbed() {
   return new EmbedBuilder()
     .setColor(EMBED_COLOR)
-    .setTitle('ℹ️ Channel Info')
+    .setTitle('ℹ️ Leaderboard Information')
     .setDescription(
       [
         'Data is sourced from Arena Sweats: https://arenasweats.lol',
