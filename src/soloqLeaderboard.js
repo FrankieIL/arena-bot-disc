@@ -91,20 +91,27 @@ function formatServerPosition(index) {
   return MEDALS[index] ?? `${index + 1}\\.`;
 }
 
+function formatApexLabel(tierText, payload) {
+  if (payload.ladderPosition) return `${tierText} (#${payload.ladderPosition.toLocaleString()})`;
+  if (payload.ladderFloor) return `${tierText} (#${payload.ladderFloor.toLocaleString()}+)`;
+  return tierText;
+}
+
 /**
- * `{icon} Tier Division` (e.g. "💎 Diamond I"), or `{icon} Tier (#N)` for
- * apex tiers with a known ladder position (e.g. "🏆 Challenger (#12)") — a
- * true EUW-wide ladder position only exists for Master+ (see riotApi.js's
- * getApexLadderPosition), so it's just omitted below that rather than shown
- * as a dash. "Unranked" if the account has no Solo Queue entry at all.
+ * `{icon} Tier Division` (e.g. "💎 Diamond I"), or for apex tiers a known
+ * ladder position (e.g. "🏆 Challenger (#12)") — a true EUW-wide position
+ * only exists for Master+ (see riotApi.js's getApexLadderStanding). Riot's
+ * masterleagues endpoint silently caps around 10k entries on large
+ * platforms, so a confirmed apex player who isn't in that list isn't
+ * missing data, just below whatever cutoff Riot returned — shown as
+ * "(#10,000+)" rather than nothing. "Unranked" if the account has no Solo
+ * Queue entry at all.
  */
 function formatTier(payload) {
   if (!payload?.tier) return 'Unranked';
   const tierKey = payload.tier.toLowerCase();
   const tierText = payload.tier.charAt(0) + payload.tier.slice(1).toLowerCase();
-  const label = APEX_TIERS.has(tierKey)
-    ? (payload.ladderPosition ? `${tierText} (#${payload.ladderPosition.toLocaleString()})` : tierText)
-    : `${tierText} ${payload.division ?? ''}`.trim();
+  const label = APEX_TIERS.has(tierKey) ? formatApexLabel(tierText, payload) : `${tierText} ${payload.division ?? ''}`.trim();
   const icon = RANK_EMOJIS[tierKey];
   return icon ? `${icon} ${label}` : label;
 }

@@ -8,7 +8,7 @@ const APEX_BRACKETS = ['challengerleagues', 'grandmasterleagues', 'masterleagues
 // per platform (not per player) and shared across every player/guild that
 // hits it within the window, rather than re-fetched on every single lookup.
 const APEX_LADDER_CACHE_MS = 10 * 60 * 1000;
-const apexLadderCache = new Map(); // platform -> { positions: Map<puuid, position>, fetchedAt }
+const apexLadderCache = new Map(); // platform -> { positions: Map<puuid, position>, size, fetchedAt }
 
 class RiotPlayerNotFoundError extends Error {}
 class RiotApiUnavailableError extends Error {}
@@ -114,18 +114,31 @@ async function fetchApexLadder(platform) {
 
   const positions = new Map();
   sorted.forEach((entry, index) => positions.set(entry.puuid, index + 1));
-  return positions;
+  return { positions, size: sorted.length };
 }
 
-async function getApexLadderPosition(platform, puuid) {
+/**
+ * Riot's masterleagues endpoint silently caps its response around 10k
+ * entries on large platforms (confirmed live on EUW — the returned list
+ * floors out at 375 LP, nowhere near the real promotion cutoff), so a
+ * confirmed apex-tier player missing from the combined list isn't actually
+ * missing rank data — they're just below whatever cutoff Riot happened to
+ * return. Returns `{ position }` when found, or `{ size }` (the length of
+ * the list they weren't found in) so the caller can say "beyond #N" instead
+ * of silently showing nothing.
+ */
+async function getApexLadderStanding(platform, puuid) {
   const cached = apexLadderCache.get(platform);
-  if (cached && Date.now() - cached.fetchedAt < APEX_LADDER_CACHE_MS) {
-    return cached.positions.get(puuid) ?? null;
-  }
+  const ladder = cached && Date.now() - cached.fetchedAt < APEX_LADDER_CACHE_MS
+    ? cached
+    : await fetchApexLadder(platform).then((result) => {
+      const entry = { ...result, fetchedAt: Date.now() };
+      apexLadderCache.set(platform, entry);
+      return entry;
+    });
 
-  const positions = await fetchApexLadder(platform);
-  apexLadderCache.set(platform, { positions, fetchedAt: Date.now() });
-  return positions.get(puuid) ?? null;
+  const position = ladder.positions.get(puuid);
+  return position ? { position } : { size: ladder.size };
 }
 
 async function fetchLiveSoloRank(discordId, riotName, riotTag, region) {
@@ -138,14 +151,17 @@ async function fetchLiveSoloRank(discordId, riotName, riotTag, region) {
   const solo = entries.find((entry) => entry.queueType === SOLO_QUEUE_TYPE);
 
   if (!solo) {
-    return { tier: null, division: null, leaguePoints: 0, wins: 0, losses: 0, ladderPosition: null };
+    return { tier: null, division: null, leaguePoints: 0, wins: 0, losses: 0, ladderPosition: null, ladderFloor: null };
   }
 
-  // Best-effort: a failure computing ladder position shouldn't fail the
+  // Best-effort: a failure computing ladder standing shouldn't fail the
   // whole lookup — the player's actual rank/LP/W-L is the load-bearing part.
   let ladderPosition = null;
+  let ladderFloor = null;
   if (APEX_TIERS.has(solo.tier)) {
-    ladderPosition = await getApexLadderPosition(platform, puuid).catch(() => null);
+    const standing = await getApexLadderStanding(platform, puuid).catch(() => ({}));
+    ladderPosition = standing.position ?? null;
+    ladderFloor = standing.size ?? null;
   }
 
   return {
@@ -155,6 +171,7 @@ async function fetchLiveSoloRank(discordId, riotName, riotTag, region) {
     wins: solo.wins,
     losses: solo.losses,
     ladderPosition,
+    ladderFloor,
   };
 }
 
