@@ -19,6 +19,7 @@ const { getPlayerSoloRank } = require('./riotApi');
 // rather than needing its own separate source.
 const { refreshSeasonLabel, getCachedSeasonLabel } = require('./arenaSweats');
 const RANK_EMOJIS = require('./rankEmojis');
+const { addTableFields } = require('./embedTable');
 
 const CHANNEL_NAME = 'soloq-leaderboard';
 const MEDALS = ['🥇', '🥈', '🥉'];
@@ -144,11 +145,7 @@ function buildLeaderboardEmbed(rows, seasonLabel) {
     ratingLines.push('—');
   });
 
-  embed.addFields(
-    { name: 'Players', value: nameLines.join('\n'), inline: true },
-    { name: 'Rank', value: rankLines.join('\n'), inline: true },
-    { name: 'League Points', value: ratingLines.join('\n'), inline: true },
-  );
+  addTableFields(embed, ['Players', 'Rank', 'League Points'], nameLines, rankLines, ratingLines);
 
   return embed;
 }
