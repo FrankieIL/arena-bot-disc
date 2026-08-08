@@ -20,7 +20,7 @@ const MEDALS = ['🥇', '🥈', '🥉'];
 const SOLOQ_REFRESH_BUTTON_ID = 'soloq_leaderboard_refresh';
 const SOLOQ_VIEW_UPDATE_DATA_BUTTON_ID = 'soloq_leaderboard_view_update_data';
 const STATUS_EMOJI = { success: '✅', failure: '❌', pending: '⏳' };
-const EMBED_COLOR = 0x0ac8b9;
+const EMBED_COLOR = 0x9b59b6;
 
 // Ranked tiers in ascending order — same set (and the same uploaded icons,
 // via RANK_EMOJIS) as Arena mode, since League's tier system is shared
@@ -104,18 +104,6 @@ function formatRating(payload) {
   return `${payload.leaguePoints ?? 0} LP`;
 }
 
-/**
- * How long ago we last confirmed this player's rank. Unlike Arena Sweats
- * (which exposes when the underlying data itself last changed), Riot's
- * league-v4 response has no such timestamp — it's always current as of the
- * call — so our own fetch time is the meaningful freshness signal here.
- */
-function formatDataAge(payload) {
-  const timestamp = payload?._fetchedAt ? Date.parse(payload._fetchedAt) : NaN;
-  if (Number.isNaN(timestamp)) return '—';
-  return `<t:${Math.floor(timestamp / 1000)}:R>`;
-}
-
 function buildLeaderboardEmbed(rows) {
   const { ranked, pending, all } = sortSoloqRows(rows);
 
@@ -149,7 +137,7 @@ function buildLeaderboardEmbed(rows) {
   return embed;
 }
 
-function buildUpdateLogEmbed(rows, statuses, payloads, {
+function buildUpdateLogEmbed(rows, statuses, {
   finished = false,
   allFailed = false,
   completedAt = null,
@@ -165,11 +153,7 @@ function buildUpdateLogEmbed(rows, statuses, payloads, {
     .setTitle(finished ? updateStatusTitle({ allFailed, completedAt }) : '🔄 Updating leaderboard…');
 
   const nameLines = rows.map((row) => row.riotName);
-  const statusLines = rows.map((row) => {
-    const emoji = STATUS_EMOJI[statuses.get(row.discordId)] ?? STATUS_EMOJI.pending;
-    if (!finished) return emoji;
-    return `${emoji} ${formatDataAge(payloads.get(row.discordId))}`;
-  });
+  const statusLines = rows.map((row) => STATUS_EMOJI[statuses.get(row.discordId)] ?? STATUS_EMOJI.pending);
 
   embed.addFields(
     { name: 'Players', value: nameLines.join('\n'), inline: true },
@@ -228,12 +212,12 @@ function buildCollapsedUpdateLogEmbed(rows, statuses, { finished, allFailed, com
 function buildInfoEmbed() {
   return new EmbedBuilder()
     .setColor(EMBED_COLOR)
-    .setTitle('ℹ️ About this leaderboard')
+    .setTitle('ℹ️ Channel Info')
     .setDescription(
       [
         'Data is sourced directly from Riot Games\' official API — Solo/Duo ranked stats.',
         '',
-        '**`/setign`** `riot_id` `region` — register your Riot ID to show up below (shared with the Arena leaderboard, same account).',
+        '**`/setign`** `riot_id` `region` — register your Riot ID to show up below.',
       ].join('\n'),
     );
 }
@@ -305,13 +289,13 @@ function getSoloqLiveRefreshCooldownRemainingMs(guildId) {
   return Math.max(0, LIVE_REFRESH_COOLDOWN_MS - (Date.now() - last));
 }
 
-async function ensureUpdateLogMessage(guild, channel, rows, statuses, payloads) {
+async function ensureUpdateLogMessage(guild, channel, rows, statuses) {
   const meta = getGuildSoloqLeaderboardMeta(guild.id);
   let message = meta?.updateLogMessageId
     ? await channel.messages.fetch(meta.updateLogMessageId).catch(() => null)
     : null;
 
-  const embed = buildUpdateLogEmbed(rows, statuses, payloads, { expanded: isUpdateLogExpanded(guild.id) });
+  const embed = buildUpdateLogEmbed(rows, statuses, { expanded: isUpdateLogExpanded(guild.id) });
 
   if (message) {
     await message.edit({ embeds: [embed] });
@@ -333,10 +317,10 @@ function recordUpdateLogState(guildId, state) {
 
 async function redrawUpdateLogMessage(guild, channel, messageId) {
   const state = updateLogRunState.get(guild.id)
-    ?? { rows: sortSoloqRows(getGuildSoloqLeaderboardRows(guild.id)).all, statuses: new Map(), payloads: new Map(), finished: true, allFailed: false, completedAt: null, durationMs: null };
+    ?? { rows: sortSoloqRows(getGuildSoloqLeaderboardRows(guild.id)).all, statuses: new Map(), finished: true, allFailed: false, completedAt: null, durationMs: null };
 
   await channel.messages.edit(messageId, {
-    embeds: [buildUpdateLogEmbed(state.rows, state.statuses, state.payloads, {
+    embeds: [buildUpdateLogEmbed(state.rows, state.statuses, {
       finished: state.finished,
       allFailed: state.allFailed,
       completedAt: state.completedAt,
@@ -408,11 +392,14 @@ async function refreshGuildSoloqLeaderboardLive(guild) {
     }
 
     const statuses = new Map(rows.map((row) => [row.discordId, 'pending']));
+    // Latest known payload per player — not shown directly in the update log
+    // (see buildUpdateLogEmbed), but still needed to sort finalRows below by
+    // this run's fresh results once everyone's been fetched.
     const payloads = new Map(rows.map((row) => [row.discordId, row.payload]));
     recordUpdateLogState(guild.id, {
-      rows, statuses, payloads, finished: false, allFailed: false, completedAt: null, durationMs: null,
+      rows, statuses, finished: false, allFailed: false, completedAt: null, durationMs: null,
     });
-    const logMessage = await ensureUpdateLogMessage(guild, channel, rows, statuses, payloads);
+    const logMessage = await ensureUpdateLogMessage(guild, channel, rows, statuses);
 
     let successCount = 0;
     for (const row of rows) {
@@ -425,10 +412,10 @@ async function refreshGuildSoloqLeaderboardLive(guild) {
         statuses.set(row.discordId, 'failure');
       }
       recordUpdateLogState(guild.id, {
-        rows, statuses, payloads, finished: false, allFailed: false, completedAt: null, durationMs: null,
+        rows, statuses, finished: false, allFailed: false, completedAt: null, durationMs: null,
       });
       await logMessage.edit({
-        embeds: [buildUpdateLogEmbed(rows, statuses, payloads, { expanded: isUpdateLogExpanded(guild.id) })],
+        embeds: [buildUpdateLogEmbed(rows, statuses, { expanded: isUpdateLogExpanded(guild.id) })],
       }).catch(() => {});
     }
 
@@ -439,9 +426,9 @@ async function refreshGuildSoloqLeaderboardLive(guild) {
     const completedAt = new Date().toISOString();
     const durationMs = Date.now() - startedAt;
     lastLiveRefreshAt.set(guild.id, Date.now());
-    recordUpdateLogState(guild.id, { rows: finalRows, statuses, payloads, finished: true, allFailed, completedAt, durationMs });
+    recordUpdateLogState(guild.id, { rows: finalRows, statuses, finished: true, allFailed, completedAt, durationMs });
     await logMessage.edit({
-      embeds: [buildUpdateLogEmbed(finalRows, statuses, payloads, {
+      embeds: [buildUpdateLogEmbed(finalRows, statuses, {
         finished: true,
         allFailed,
         completedAt,

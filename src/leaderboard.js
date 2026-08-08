@@ -20,6 +20,7 @@ const MEDALS = ['🥇', '🥈', '🥉'];
 const REFRESH_BUTTON_ID = 'leaderboard_refresh';
 const VIEW_UPDATE_DATA_BUTTON_ID = 'leaderboard_view_update_data';
 const STATUS_EMOJI = { success: '✅', failure: '❌', pending: '⏳' };
+const EMBED_COLOR = 0xe74c3c;
 
 // Update button cooldown: a click re-fetches every registered player live,
 // so this is the only thing standing between the button and hammering
@@ -80,7 +81,7 @@ function buildLeaderboardEmbed(rows) {
   const { ranked, pending, all } = sortLeaderboardRows(rows);
 
   const embed = new EmbedBuilder()
-    .setColor(0xf1c40f)
+    .setColor(EMBED_COLOR)
     .setTitle('🏆 Arena Leaderboard')
     .setFooter({ text: `${rows.length} player${rows.length === 1 ? '' : 's'} registered` });
 
@@ -188,7 +189,7 @@ function buildUpdateLogEmbed(rows, statuses, payloads, {
   }
 
   const embed = new EmbedBuilder()
-    .setColor(0xf1c40f)
+    .setColor(EMBED_COLOR)
     .setTitle(finished ? updateStatusTitle({ allFailed, completedAt }) : '🔄 Updating leaderboard…');
 
   const nameLines = rows.map((row) => row.riotName);
@@ -241,7 +242,7 @@ function updateStatusTitle({ allFailed, completedAt }) {
  * without the full per-player breakdown.
  */
 function buildCollapsedUpdateLogEmbed(rows, statuses, { finished, allFailed, completedAt }) {
-  const embed = new EmbedBuilder().setColor(0xf1c40f);
+  const embed = new EmbedBuilder().setColor(EMBED_COLOR);
 
   if (!finished) {
     embed.setTitle('🔄 Updating leaderboard…');
@@ -268,8 +269,8 @@ function buildCollapsedUpdateLogEmbed(rows, statuses, { finished, allFailed, com
 
 function buildInfoEmbed() {
   return new EmbedBuilder()
-    .setColor(0xf1c40f)
-    .setTitle('ℹ️ About this leaderboard')
+    .setColor(EMBED_COLOR)
+    .setTitle('ℹ️ Channel Info')
     .setDescription(
       [
         'Data is sourced from Arena Sweats: https://arenasweats.lol',

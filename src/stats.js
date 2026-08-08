@@ -19,6 +19,7 @@ const AUTO_DELETE_MS = 5 * 60 * 1000;
 const MATCH_HISTORY_LIMIT = 20;
 const GAMES_PER_ROW = 10;
 const RANK_MEDALS = ['🥇', '🥈', '🥉'];
+const EMBED_COLOR = 0x95a5a6;
 
 class PlayerNotRegisteredError extends Error {}
 
@@ -57,13 +58,13 @@ function formatTopHalfRate(payload) {
 
 function buildInfoEmbed() {
   return new EmbedBuilder()
-    .setColor(0x3498db)
-    .setTitle('ℹ️ About this channel')
+    .setColor(EMBED_COLOR)
+    .setTitle('ℹ️ Channel Info')
     .setDescription(
       [
         'Run **`/stats`** in this channel to post your Arena stat card — win rate, top placement rate, recent matches, and most-played champions.',
         '',
-        'Add `user` to check someone else\'s stats instead of your own, e.g. `/stats user:@someone`.',
+        'Add `user` to check someone else\'s stats instead of your own, e.g. `/stats user`.',
       ].join('\n'),
     );
 }
@@ -217,7 +218,7 @@ function buildStatsEmbed(riotName, riotTag, region, rankPayload, topChamps, matc
   const topHalfLabel = rankPayload.tophalf_label || 'Top 3';
 
   const embed = new EmbedBuilder()
-    .setColor(0x3498db)
+    .setColor(EMBED_COLOR)
     .setTitle(`📊 ${riotName}#${riotTag}`)
     .addFields(
       { name: 'Rank', value: formatTier(rankPayload), inline: true },
