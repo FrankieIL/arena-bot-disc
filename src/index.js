@@ -3,6 +3,7 @@ const { DISCORD_TOKEN } = require('./config');
 const { getGuildLeaderboardMeta, getGuildStatsChannel, getGuildSoloqLeaderboardMeta } = require('./db');
 const setign = require('./commands/setign');
 const stats = require('./commands/stats');
+const remove = require('./commands/remove');
 const {
   refreshGuildLeaderboardLive,
   getLiveRefreshCooldownRemainingMs,
@@ -31,6 +32,7 @@ const HOUR_MS = 60 * 60 * 1000;
 client.commands = new Collection();
 client.commands.set(setign.data.name, setign);
 client.commands.set(stats.data.name, stats);
+client.commands.set(remove.data.name, remove);
 
 /**
  * Same live refresh the Update button triggers, just on a wall-clock-aligned

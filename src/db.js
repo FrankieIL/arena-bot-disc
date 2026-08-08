@@ -124,6 +124,10 @@ const addGuildLeaderboardMemberStmt = db.prepare(`
   ON CONFLICT(guild_id, discord_id) DO NOTHING
 `);
 
+const removeGuildLeaderboardMemberStmt = db.prepare(`
+  DELETE FROM guild_leaderboard_members WHERE guild_id = ? AND discord_id = ?
+`);
+
 const getGuildLeaderboardRowsStmt = db.prepare(`
   SELECT glm.discord_id, p.riot_name, p.riot_tag, p.region, rc.payload
   FROM guild_leaderboard_members glm
@@ -268,6 +272,20 @@ function addGuildLeaderboardMember(guildId, discordId) {
   });
 }
 
+/**
+ * Removes a player from a guild's leaderboards — this is the single roster
+ * both the Arena and Solo Queue leaderboards are drawn from (see
+ * getGuildLeaderboardRows/getGuildSoloqLeaderboardRows), so one delete takes
+ * them off both at once. Only touches this guild's membership, not their
+ * global Riot ID registration (players table) — re-running /setign re-adds
+ * them. Returns whether a row was actually removed, so the caller can tell
+ * "removed" apart from "wasn't on the leaderboards to begin with".
+ */
+function removeGuildLeaderboardMember(guildId, discordId) {
+  const result = removeGuildLeaderboardMemberStmt.run(guildId, discordId);
+  return result.changes > 0;
+}
+
 function getGuildLeaderboardRows(guildId) {
   return getGuildLeaderboardRowsStmt.all(guildId).map((row) => ({
     discordId: row.discord_id,
@@ -372,6 +390,7 @@ module.exports = {
   getCachedSoloRank,
   setCachedSoloRank,
   addGuildLeaderboardMember,
+  removeGuildLeaderboardMember,
   getGuildLeaderboardRows,
   getGuildLeaderboardMeta,
   setGuildLeaderboardMeta,
