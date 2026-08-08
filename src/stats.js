@@ -15,7 +15,6 @@ const RANK_EMOJIS = require('./rankEmojis');
 const PLACEMENT_EMOJIS = require('./placementEmojis');
 
 const CHANNEL_NAME = 'arena-stats';
-const AUTO_DELETE_MS = 5 * 60 * 1000;
 const MATCH_HISTORY_LIMIT = 20;
 const GAMES_PER_ROW = 10;
 const RANK_MEDALS = ['🥇', '🥈', '🥉'];
@@ -126,45 +125,29 @@ async function ensureStatsChannel(guild) {
 
 /**
  * The stats channel allows free chat (unlike the leaderboard channel, which
- * deletes stray messages on sight) but still needs to stay tidy. Instead of
- * each card tracking its own separate delete timer, every message posted to
- * the channel — cards and stray chat alike — is queued here and swept
- * together AUTO_DELETE_MS after the *most recently posted* card, so a new
- * card resets the clock for everything still pending. Once the timer fires
- * with nothing new queued behind it, the channel is empty again.
+ * deletes stray messages on sight) but still needs to stay tidy. Rather than
+ * tracking individual message IDs against a relative timer, the whole
+ * channel is wiped back down to just the info message on the same
+ * wall-clock hourly tick the leaderboards auto-update on (see index.js's
+ * runAutoUpdate) — fetching and deleting whatever's actually there each
+ * time, so it can't drift out of sync with reality the way an in-memory
+ * tracked set could (e.g. across a bot restart).
  */
-const pendingCleanup = new Map(); // channelId -> { messageIds: Set<string>, timer: NodeJS.Timeout|null }
+async function sweepGuildStatsChannel(guild) {
+  const meta = getGuildStatsChannel(guild.id);
+  if (!meta) return;
 
-function getCleanupState(channelId) {
-  let state = pendingCleanup.get(channelId);
-  if (!state) {
-    state = { messageIds: new Set(), timer: null };
-    pendingCleanup.set(channelId, state);
-  }
-  return state;
-}
+  const channel = guild.channels.cache.get(meta.channelId)
+    ?? (await guild.channels.fetch(meta.channelId).catch(() => null));
+  if (!channel) return;
 
-async function sweepChannel(channel) {
-  const state = pendingCleanup.get(channel.id);
-  if (!state) return;
-  pendingCleanup.delete(channel.id);
+  const messages = await channel.messages.fetch({ limit: 100 }).catch(() => null);
+  if (!messages) return;
 
-  const ids = [...state.messageIds];
-  if (ids.length > 0) {
-    await channel.bulkDelete(ids, true).catch(() => {});
-  }
-}
+  const toDelete = messages.filter((msg) => msg.id !== meta.infoMessageId);
+  if (toDelete.size === 0) return;
 
-function scheduleChannelCleanup(channel, messageId) {
-  const state = getCleanupState(channel.id);
-  state.messageIds.add(messageId);
-  if (state.timer) clearTimeout(state.timer);
-  state.timer = setTimeout(() => sweepChannel(channel), AUTO_DELETE_MS);
-}
-
-/** Queues a non-card message (stray chat) to be swept alongside the next card cleanup, without starting/resetting the timer itself. */
-function trackStrayMessage(channel, messageId) {
-  getCleanupState(channel.id).messageIds.add(messageId);
+  await channel.bulkDelete(toDelete, true).catch(() => {});
 }
 
 function formatChampionLines(champions) {
@@ -263,11 +246,12 @@ function buildStatsEmbed(riotName, riotTag, region, rankPayload, topChamps, matc
 /**
  * Resolves a Discord ID to their registered Riot ID, fetches their current
  * stats (rank/rate stats are load-bearing — a failure there fails the whole
- * command; champions/match-history are best-effort), posts the card to the
- * guild's stats channel, and schedules its auto-delete. Throws
- * `PlayerNotRegisteredError` if the target hasn't run `/setign`, or
- * whatever `getPlayerRank` throws (PlayerNotFoundError /
- * ArenaSweatsUnavailableError) if the live fetch fails.
+ * command; champions/match-history are best-effort), and posts the card to
+ * the guild's stats channel — it stays until the next hourly sweep (see
+ * sweepGuildStatsChannel). Throws `PlayerNotRegisteredError` if the target
+ * hasn't run `/setign`, or whatever `getPlayerRank` throws
+ * (PlayerNotFoundError / ArenaSweatsUnavailableError) if the live fetch
+ * fails.
  */
 async function postPlayerStats(guild, targetDiscordId) {
   const player = getPlayer(targetDiscordId);
@@ -288,7 +272,6 @@ async function postPlayerStats(guild, targetDiscordId) {
   // — someone checking their own stats shouldn't buzz everyone else's phone.
   // The message still posts and still shows as unread, just without the ping.
   const message = await channel.send({ embeds: [embed], flags: MessageFlags.SuppressNotifications });
-  scheduleChannelCleanup(channel, message.id);
 
   return { jumpLink: message.url };
 }
@@ -296,7 +279,7 @@ async function postPlayerStats(guild, targetDiscordId) {
 module.exports = {
   postPlayerStats,
   ensureStatsChannel,
-  trackStrayMessage,
+  sweepGuildStatsChannel,
   PlayerNotRegisteredError,
   PlayerNotFoundError,
 };

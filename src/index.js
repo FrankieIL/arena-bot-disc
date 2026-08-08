@@ -1,6 +1,6 @@
 const { Client, GatewayIntentBits, Collection, MessageFlags } = require('discord.js');
 const { DISCORD_TOKEN } = require('./config');
-const { getGuildLeaderboardMeta, getGuildStatsChannel, getGuildSoloqLeaderboardMeta } = require('./db');
+const { getGuildLeaderboardMeta, getGuildSoloqLeaderboardMeta } = require('./db');
 const setign = require('./commands/setign');
 const stats = require('./commands/stats');
 const remove = require('./commands/remove');
@@ -20,7 +20,7 @@ const {
   SOLOQ_REFRESH_BUTTON_ID,
   SOLOQ_VIEW_UPDATE_DATA_BUTTON_ID,
 } = require('./soloqLeaderboard');
-const { trackStrayMessage } = require('./stats');
+const { sweepGuildStatsChannel } = require('./stats');
 const { refreshSeasonLabel } = require('./arenaSweats');
 const { scheduleEphemeralDismiss, scheduleFollowUpDismiss } = require('./interactions');
 
@@ -38,8 +38,9 @@ client.commands.set(remove.data.name, remove);
  * Same live refresh the Update button triggers, just on a wall-clock-aligned
  * hourly timer instead of a click — shares the same cooldown map, sweep, and
  * log message, so an hourly tick is indistinguishable from someone pressing
- * Update on the hour. One guild's failure (e.g. missing permissions) is
- * caught so it can't stop the rest from refreshing.
+ * Update on the hour. Also wipes the stats channel back down to just its
+ * info message on this same tick (see sweepGuildStatsChannel). One guild's
+ * failure (e.g. missing permissions) is caught so it can't stop the rest.
  */
 async function runAutoUpdate() {
   for (const guild of client.guilds.cache.values()) {
@@ -52,6 +53,11 @@ async function runAutoUpdate() {
       await refreshGuildSoloqLeaderboardLive(guild);
     } catch (err) {
       console.error(`Error auto-updating Solo Queue leaderboard for guild ${guild.id}:`, err);
+    }
+    try {
+      await sweepGuildStatsChannel(guild);
+    } catch (err) {
+      console.error(`Error sweeping stats channel for guild ${guild.id}:`, err);
     }
   }
 }
@@ -210,12 +216,6 @@ client.on('messageCreate', async (message) => {
     if (notice) {
       setTimeout(() => notice.delete().catch(() => {}), STRAY_MESSAGE_NOTICE_LIFETIME_MS);
     }
-    return;
-  }
-
-  const statsMeta = getGuildStatsChannel(message.guild.id);
-  if (statsMeta && message.channel.id === statsMeta.channelId) {
-    trackStrayMessage(message.channel, message.id);
   }
 });
 
